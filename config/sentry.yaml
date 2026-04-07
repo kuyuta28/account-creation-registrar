@@ -1,0 +1,13 @@
+sentry:
+  # DSN thực: set qua env var SENTRY_DSN hoặc điền trực tiếp tại đây
+  # Để trống = Sentry bị tắt hoàn toàn (safe default)
+  dsn: "https://62101301b496f5b2529511c12fe622f0@o4511148563890176.ingest.us.sentry.io/4511148666388480"
+  # Môi trường: production | staging | development
+  # Override qua env var SENTRY_ENV
+  environment: "production"
+  # Tỉ lệ sample performance traces (0.0 = tắt, 1.0 = 100%)
+  traces_sample_rate: 0.1
+  # Tỉ lệ sample profiling (0.0 = tắt)
+  profiles_sample_rate: 0.0
+  # Có gửi PII (IP, user email...) không — mặc định false (GDPR safe)
+  send_default_pii: false

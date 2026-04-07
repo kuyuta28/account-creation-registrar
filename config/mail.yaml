@@ -1,0 +1,4 @@
+mail:
+  cooldown_sec: 60
+  max_consecutive_fails: 3
+  retryable_status_codes: [429, 500, 502, 503, 504]

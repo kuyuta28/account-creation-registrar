@@ -1,0 +1,95 @@
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "account-creation"
+version = "0.1.0"
+description = "Browser automation toolkit for account creation flows."
+readme = "docs/README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "openai>=1.0.0",
+    "cloverlabs-camoufox[geoip]>=0.5.5",
+    "playwright>=1.50.0",
+    "pydantic>=2.0.0",
+    "PyYAML>=6.0",
+    "requests>=2.31.0",
+    "httpx>=0.25.0",
+    "sqlalchemy>=2.0",
+    "pyotp>=2.9.0",
+    "aioimaplib>=2.0.0",
+    "sentry-sdk[fastapi]>=2.0.0",
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.30.0",
+    "tqdm>=4.66.0",
+    "Pillow>=10.0.0",
+    "patchright>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+account-creation = "src.cli.menu:main"
+run-elevenlabs = "src.cli.runners:main_run_elevenlabs"
+run-chatgpt = "src.cli.runners:main_run_chatgpt"
+run-leonardo = "src.cli.runners:main_run_leonardo"
+run-2slides = "src.cli.runners:main_run_2slides"
+run-tts = "src.tts_proxy.server:app"
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+# ---------------------------------------------------------------------------
+# Ruff — linter (cài: pip install ruff)
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "F",      # pyflakes
+    "BLE001", # blind exception: "except Exception" → phải có noqa hoặc raise
+    "E722",   # bare "except:" (không type)
+    "UP",     # pyupgrade: f-string, type hints...
+    "RUF",    # Ruff-specific rules
+]
+ignore = [
+    "E501",   # line too long (dùng line-length=120 đủ rồi)
+    "UP007",  # Optional[X] → X | None (Python 3.10+ nhưng có thể confuse)
+    "RUF006", # asyncio.create_task fire-and-forget — intentional pattern trong toàn codebase
+    "RUF001", # ambiguous unicode chars trong string — Vietnamese text encoding display artifact
+    "RUF002", # ambiguous unicode chars trong docstring — Vietnamese text
+    "RUF003", # ambiguous unicode chars trong comment — Vietnamese text
+    "RUF022", # __all__ not sorted — grouped by category với comments, sort sẽ phá structure
+]
+
+# ===== POLICY cho BLE001 =====
+# Dùng `# noqa: BLE001` CHỈ khi thuộc 1 trong 3 trường hợp sau:
+#   1. Best-effort IO: except Exception: pass  # đây là write stdout/log file, thất bại = skip
+#   2. Cleanup then re-raise: except Exception: cleanup(); raise
+#   3. Batch error collector: except Exception as e: results.append({"ok": False, "error": str(e)})
+#
+# KHÔNG được dùng noqa: BLE001 trong business logic / registrar flow.
+
+[tool.ruff.lint.per-file-ignores]
+# logger.py: write to stdout/log file — IO thất bại thì skip, không crash; late import _io intentional
+"src/core/logger.py" = ["BLE001", "E402"]
+# page_utils.py: dump_debug_html — best-effort debug, không crash registrar
+"src/core/page_utils.py" = ["BLE001"]
+# guard.py bản thân nó là utility — nhưng phải dùng PlaywrightTimeoutError
+"src/core/guard.py" = []
+# log_manager.py: broadcast WebSocket — dead WS thì remove, không crash
+"src/api/ws/log_manager.py" = ["BLE001"]
+# chatgpt registrar: late imports sau _LOG intentional (circular import avoidance)
+"src/services/chatgpt_com/registrar.py" = ["E402"]
+

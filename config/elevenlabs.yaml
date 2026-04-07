@@ -1,0 +1,8 @@
+elevenlabs:
+  signup_url: https://elevenlabs.io/app/sign-up
+  api_keys_url: https://elevenlabs.io/app/developers/api-keys
+  app_base_url: elevenlabs.io/app
+  captcha_load_wait_ms: 4000
+  use_google_session: false
+  api_user_url: https://api.elevenlabs.io/v1/user
+  check_timeout_sec: 10

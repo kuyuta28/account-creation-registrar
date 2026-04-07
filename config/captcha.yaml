@@ -1,0 +1,56 @@
+# ============================================================
+# Captcha Solver Configuration
+# ============================================================
+
+captcha:
+  max_rounds: 15
+  checkbox_wait_sec: 12
+  challenge_poll_ms: 1000
+  challenge_min_w: 300
+  challenge_min_h: 250
+  click_delay_ms: 400
+  post_click_wait_ms: 600
+  post_verify_wait_ms: 2500
+  recheck_wait_ms: 3000
+  pre_solve_wait_ms: 600
+  drag_steps: 20
+  drag_settle_ms: 400
+
+  # API keys — để trống nếu không dùng service đó
+  ezcaptcha_api_key: ""      # EZCaptcha  — Turnstile $1/1k     (dashboard.ez-captcha.com)
+  yescaptcha_api_key: ""     # YesCaptcha — FREE 1500 điểm khi đăng ký (yescaptcha.com)
+  twocaptcha_api_key: "e3d2b699ddd12357052812f925563d4d"  # 2captcha — Turnstile $1.45/1k (2captcha.com)
+  capsolver_api_key: ""      # CapSolver  — Turnstile $1.6/1k   (dashboard.capsolver.com)
+
+  # Turnstile-Solver local server (github.com/Theyka/Turnstile-Solver, dùng camoufox)
+  # Để trống = không dùng. Cài: D:\business\Turnstile-Solver
+  turnstile_solver_url: "http://127.0.0.1:5000"
+
+  # patchright: dùng Chromium đã patch fingerprint để tự solve Turnstile
+  # true = không cần API key, false = dùng API key bên trên
+  use_patchright: false
+  patchright_headless: true
+
+  # Timing config cho captcha API
+  poll_interval_sec: 3
+  max_wait_sec: 120
+  create_task_timeout_sec: 30
+  poll_result_timeout_sec: 10
+  balance_timeout_sec: 15
+  turnstile_solver_timeout_sec: 15
+
+  # patchright browser settings
+  patchright_viewport_width: 1280
+  patchright_viewport_height: 800
+  patchright_page_load_timeout_ms: 40000
+  patchright_poll_interval_sec: 0.5
+
+  # Provider base URLs và task types
+  yescaptcha_base: "https://api.yescaptcha.com"
+  yescaptcha_turnstile_task: "TurnstileTaskProxyless"
+  ezcaptcha_base: "https://api.ez-captcha.com"
+  ezcaptcha_turnstile_task: "CloudFlareTurnstileTask"
+  twocaptcha_base: "https://api.2captcha.com"
+  twocaptcha_turnstile_task: "TurnstileTaskProxyless"
+  capsolver_base: "https://api.capsolver.com"
+  capsolver_turnstile_task: "AntiTurnstileTaskProxyless"

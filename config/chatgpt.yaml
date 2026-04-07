@@ -1,0 +1,30 @@
+chatgpt:
+  oauth_authorize_url: https://auth.openai.com/oauth/authorize
+  oauth_token_url: https://auth.openai.com/oauth/token
+  client_id: app_EMoamEEZ73f0CkXaXp7hrann
+  redirect_uri: http://localhost:1455/auth/callback
+  callback_port: 1455
+  otp_wait_sec: 30
+  otp_poll_interval: 4
+  post_submit_wait_ms: 3000
+  callback_timeout_sec: 30
+
+  # Checker API endpoints
+  me_url: "https://api.openai.com/v1/me"
+  quota_url: "https://chatgpt.com/backend-api/wham/usage"
+
+  # User-agent strings cho checker
+  codex_ua: "codex_cli_rs/0.101.0 (Mac OS 26.0.1; arm64) Apple_Terminal/464"
+  quota_ua: "codex_cli_rs/0.76.0 (Debian 13.0.0; x86_64) WindowsTerminal"
+  weekly_quota_window_sec: 604800
+
+  # HTTP timeouts (giây)
+  refresh_token_timeout_sec: 20
+  check_me_timeout_sec: 10
+  fetch_quota_timeout_sec: 10
+
+  # Random birthyear range cho registration form
+  birthyear_min: 1985
+  birthyear_max: 1999
+  birthyear_alt_min: 1975
+  birthyear_alt_max: 1998

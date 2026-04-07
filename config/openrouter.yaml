@@ -1,0 +1,13 @@
+openrouter:
+  signup_url: https://openrouter.ai/sign-up
+  app_url_contains: openrouter.ai
+  turnstile_sitekey: 0x4AAAAAAAWXJGBD7bONzLBd
+  otp_wait_sec: 30
+  otp_poll_interval: 4
+  post_submit_wait_ms: 3000
+
+  # Checker
+  key_check_url: "https://openrouter.ai/api/v1/key"
+  chat_completions_url: "https://openrouter.ai/api/v1/chat/completions"
+  privacy_check_model: "minimax/minimax-m2.5:free"
+  check_timeout_sec: 15

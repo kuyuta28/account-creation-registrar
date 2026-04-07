@@ -1,0 +1,72 @@
+browser:
+  headless: false
+  viewport_width: 1280
+  viewport_height: 720
+timeouts:
+  email_wait: 30
+  page_load: 20000
+  poll_interval: 4
+  step_delay: 1500
+  click_delay: 500
+  short_delay: 300
+  nav_delay: 2000
+  sign_in_delay: 3000
+  batch_delay_sec: 5
+llm:
+  base_url: http://localhost:8317/v1
+  api_key: ccs-internal-managed
+  model: gpt-5.2
+  max_tokens: 25600
+  verify_max_tokens: 6400
+register:
+  max_attempts: 3
+  password_length: 14
+registration:
+  max_jobs: 500
+  max_consecutive_fails: 10
+  max_count: 1000
+  max_workers: 10
+api:
+  cors_origins:
+    - http://localhost:1420
+    - http://localhost:1421
+    - tauri://localhost
+auth_sync:
+  enabled: true
+  target_dir: C:\Users\admin\.ccs\cliproxy\auth
+cliproxy_sync:
+  management_url: http://localhost:8317
+  management_key: ccs
+proxy:
+  enabled: false
+  server: http://171.236.85.75:34767
+  username: toims_nanht
+  password: QmZf8mSj
+gmail_variations:
+  dot_max_username_len: 12
+  dot_long_sample_mid_divisor: 2
+  default_plus_tags:
+    - "1"
+    - "2"
+    - "3"
+    - "4"
+    - "5"
+    - "6"
+    - "7"
+    - "8"
+    - "9"
+    - "10"
+    - "11"
+    - "12"
+    - "13"
+    - "14"
+    - "15"
+    - "16"
+    - "17"
+    - "18"
+    - "19"
+    - "20"
+  ui_default_use_plus: true
+  ui_default_use_dot: false
+  ui_default_use_googlemail: false
+  ui_default_plus_tags: 1,2,3,4,5,6,7,8,9,10

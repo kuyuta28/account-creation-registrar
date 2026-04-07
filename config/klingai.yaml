@@ -1,0 +1,6 @@
+klingai:
+  login_url: "https://app.klingai.com/global/"
+  app_url_contains: "klingai.com"
+  session_dir: "data/kling_sessions"
+  login_timeout_sec: 180
+  post_login_wait_ms: 2000

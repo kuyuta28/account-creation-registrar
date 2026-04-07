@@ -1,0 +1,5 @@
+artificialanalysis:
+  login_url: https://artificialanalysis.ai/login
+  app_url_contains: artificialanalysis.ai
+  magic_link_wait_sec: 30
+  post_submit_wait_ms: 3000

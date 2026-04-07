@@ -1,0 +1,1399 @@
+"""
+database.py — SQLite persistence layer dùng SQLAlchemy 2.
+
+Pure functions — caller truyền db_path, không có global engine.
+Engine được cache theo path để tránh tạo lại mỗi lần gọi.
+Thread-safe: SQLite WAL + SQLAlchemy connection pool.
+
+Public API (giữ nguyên — storage.py không cần sửa):
+  init_db(db_path)                              → tạo bảng nếu chưa có
+  insert_account(db_path, record)               → INSERT IGNORE nếu trùng service+email
+  upsert_account(db_path, record)               → INSERT ON CONFLICT DO UPDATE
+  get_accounts(db_path, service)                → List[dict]
+  get_account_by_email(db_path, service, email) → Optional[dict]
+  update_account(db_path, service, email, **fields) → bool
+  delete_account(db_path, service, email)       → bool
+  delete_accounts(db_path, service, emails)     → int
+  count_accounts(db_path, service)              → int
+  bulk_insert(db_path, records)                 → int
+  update_accounts_bulk(db_path, service, updates) → int
+"""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import (
+    Boolean,
+    Engine,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    case,
+    create_engine,
+    delete,
+    event,
+    exists,
+    func,
+    insert,
+    or_,
+    select,
+    text,
+    update,
+)
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.orm import DeclarativeBase, Mapped, MappedColumn, Session, mapped_column
+from sqlalchemy.pool import NullPool
+
+# ── ORM Model ─────────────────────────────────────────────────────────────────
+
+class _Base(DeclarativeBase):
+    pass
+
+
+class _Account(_Base):
+    """SQLAlchemy 2 ORM model — internal, không expose ra ngoài module."""
+    __tablename__ = "accounts"
+
+    id:            Mapped[int]  = mapped_column(Integer, primary_key=True, autoincrement=True)
+    service:       Mapped[str]  = mapped_column(String(64), nullable=False)
+    email:         Mapped[str]  = mapped_column(String(256), nullable=False)
+    password:      Mapped[str]  = mapped_column(Text, default="")
+    disabled:      Mapped[bool] = mapped_column(Boolean, default=False)
+    api_key:       Mapped[str]  = mapped_column(Text, default="")
+    credits:       Mapped[int]  = mapped_column(Integer, default=0)
+    refresh_token: Mapped[str]  = mapped_column(Text, default="")
+    access_token:  Mapped[str]  = mapped_column(Text, default="")
+    account_id:    Mapped[str]  = mapped_column(String(256), default="")
+    id_token:      Mapped[str]  = mapped_column(Text, default="")
+    expired:       Mapped[str]  = mapped_column(String(64), default="")
+    last_refresh:  Mapped[str]  = mapped_column(String(64), default="")
+    token_type:    Mapped[str]  = mapped_column(String(32), default="")
+    created_at:    Mapped[str]  = mapped_column(String(64), nullable=False)
+    updated_at:    Mapped[str]  = mapped_column(String(64), nullable=False)
+    check_status:   Mapped[str]  = mapped_column(String(32), default="")
+    quota_pct:      Mapped[str]  = mapped_column(String(16), default="")
+    last_checked:   Mapped[str]  = mapped_column(String(64), default="")
+    last_error:     Mapped[str]  = mapped_column(Text, default="")
+    session_state:  Mapped[str]  = mapped_column(Text, default="")
+    totp_secret:    Mapped[str]  = mapped_column(Text, default="")
+    app_password:   Mapped[str]  = mapped_column(Text, default="")
+    source_email:   Mapped[str]  = mapped_column(Text, default="")  # base Gmail nếu là alias
+
+    __table_args__ = (
+        UniqueConstraint("service", "email", name="uq_service_email"),
+        Index("idx_accounts_service", "service"),
+        Index("idx_accounts_service_disabled", "service", "disabled"),
+    )
+
+
+class _MailProvider(_Base):
+    """
+    Mail provider — nhận verification email.
+    provider_type: "mailslurp.com" | "testmail.app" | "mailosaur.com" | "mail.tm" | "guerrillamail.com"
+    api_key:      raw credential only (SK_xxx cho mailslurp, API key cho mailosaur/testmail)
+    server_id:    secondary identifier (namespace cho testmail, server_id cho mailosaur, base_url cho mail.tm)
+    """
+    __tablename__ = "mail_providers"
+
+    id:            Mapped[int]  = mapped_column(Integer, primary_key=True, autoincrement=True)
+    provider_type: Mapped[str]  = mapped_column(String(64), nullable=False)
+    api_key:       Mapped[str]  = mapped_column(Text, nullable=False, default="")
+    server_id:     Mapped[str]  = mapped_column(Text, nullable=False, default="")
+    label:         Mapped[str]  = mapped_column(Text, default="")
+    disabled:      Mapped[bool] = mapped_column(Boolean, default=False)
+    fail_count:    Mapped[int]  = mapped_column(Integer, default=0)
+    cooldown_until: Mapped[str] = mapped_column(String(64), default="")
+    last_used:     Mapped[str]  = mapped_column(String(64), default="")
+    created_at:    Mapped[str]  = mapped_column(String(64), nullable=False)
+    updated_at:    Mapped[str]  = mapped_column(String(64), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("provider_type", "api_key", "server_id", name="uq_mail_provider"),
+        Index("idx_mail_providers_type", "provider_type"),
+        Index("idx_mail_providers_disabled", "disabled"),
+    )
+
+
+class _ProviderDomainTag(_Base):
+    """Tags per provider_type: provider_type ↔ service. Mỗi type 1 bộ tags duy nhất."""
+    __tablename__ = "provider_domain_tags"
+
+    id:            Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    provider_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    tag:           Mapped[str] = mapped_column(String(128), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("provider_type", "tag", name="uq_domain_tag"),
+        Index("idx_domain_tag", "tag"),
+    )
+
+
+class _Service(_Base):
+    """Danh sách services — single source of truth. has_registrar=True nếu có auto-registration."""
+    __tablename__ = "services"
+
+    name:          Mapped[str]  = mapped_column(String(64), primary_key=True)
+    has_registrar: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class _MailboxServiceBlock(_Base):
+    """
+    Đánh dấu một Gmail mailbox là không khả dụng cho một service cụ thể.
+    Ví dụ: thonhu78@gmail.com bị ElevenLabs block server-side (Error 47).
+
+    email:      Gmail address (FK logic tới mailboxes.email)
+    service:    tên service viết hoa, ví dụ "ELEVENLABS"
+    reason:     mô tả lý do block (ví dụ "Error 47 — per-account block")
+    blocked_at: timestamp UTC khi phát hiện block
+    """
+    __tablename__ = "mailbox_service_blocks"
+
+    email:      Mapped[str] = mapped_column(String(256), primary_key=True)
+    service:    Mapped[str] = mapped_column(String(64),  primary_key=True)
+    reason:     Mapped[str] = mapped_column(Text, default="")
+    blocked_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    __table_args__ = (
+        Index("idx_msb_service", "service"),
+    )
+
+
+# ── Engine cache ───────────────────────────────────────────────────────────────
+
+_engines: dict[str, Engine] = {}
+
+
+def _get_engine(db_path: Path) -> Engine:
+    key = str(db_path.resolve())
+    if key not in _engines:
+        engine = create_engine(
+            f"sqlite:///{key}",
+            connect_args={"check_same_thread": False},
+            # NullPool: không pool connections → Windows không khóa file giữa các test
+            poolclass=NullPool,
+        )
+        # Bật WAL mode + foreign keys cho mỗi connection mới
+        @event.listens_for(engine, "connect")
+        def _set_pragmas(dbapi_conn, _record):
+            dbapi_conn.execute("PRAGMA journal_mode=WAL")
+            dbapi_conn.execute("PRAGMA foreign_keys=ON")
+
+        _engines[key] = engine
+    return _engines[key]
+
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
+
+def _now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def _compute_status(disabled: bool, check_status: str) -> str:
+    """Computed status field — tập trung domain rule ở BE, FE chỉ đọc."""
+    if disabled or check_status in ("invalid", "error"):
+        return "disabled"
+    if not check_status:
+        return "unchecked"
+    return "active"
+
+
+def _parse_quota_pct(raw: str) -> int | None:
+    """Parse quota_pct string (e.g. '75%', '75', '') → int | None."""
+    if not raw:
+        return None
+    try:
+        return int(raw.rstrip("%"))
+    except ValueError:
+        return None
+
+
+def _to_dict(row: _Account) -> Dict[str, Any]:
+    return {  # noqa: E501
+        "id":            row.id,
+        "service":       row.service,
+        "email":         row.email,
+        "password":      row.password,
+        "disabled":      row.disabled,
+        "status":        _compute_status(row.disabled, row.check_status),
+        "api_key":       row.api_key,
+        "credits":       row.credits,
+        "refresh_token": row.refresh_token,
+        "access_token":  row.access_token,
+        "account_id":    row.account_id,
+        "id_token":      row.id_token,
+        "expired":       row.expired,
+        "last_refresh":  row.last_refresh,
+        "token_type":    row.token_type,
+        "created_at":    row.created_at,
+        "updated_at":    row.updated_at,
+        "check_status":   row.check_status,
+        "quota_pct":      _parse_quota_pct(row.quota_pct),
+        "last_checked":   row.last_checked,
+        "last_error":     row.last_error,
+        "session_state":  row.session_state,
+        "totp_secret":    row.totp_secret,
+        "app_password":   row.app_password,
+        "source_email":   row.source_email,
+    }
+
+
+def _to_mailbox_dict(row: "_Account") -> Dict[str, Any]:
+    """Convert _Account row (service='GMAIL') sang mailbox dict shape."""
+    return {
+        "email":             row.email,
+        "app_password":      row.app_password,
+        "totp_secret":       row.totp_secret,
+        "password":          row.password,
+        "source_email":      row.source_email,
+        "google_auth_state": row.session_state,   # session_state = Playwright storage_state
+        "disabled":          row.disabled,
+        "label":             "",
+        "created_at":        row.created_at,
+        "updated_at":        row.updated_at,
+    }
+
+
+def _connection_str(provider_type: str, api_key: str, server_id: str) -> str:
+    """Reconstruct compound provider string dùng bởi mail client để routing."""
+    match provider_type:
+        case "mailslurp.com":
+            return f"mailslurp.com:{api_key}"
+        case "testmail.app":
+            return f"testmail.app:{server_id}:{api_key}"
+        case "mailosaur.com":
+            return f"mailosaur.com:{api_key}:{server_id}"
+        case "guerrillamail.com":
+            return "guerrillamail.com"
+        case "mail.tm":
+            return server_id or "https://api.mail.tm"
+        case "gmail.com":
+            # gmail không có row trong _MailProvider — handled via synthetic rows
+            return f"gmail.com:{api_key}"  # api_key = email address
+        case _:
+            raise ValueError(f"Unknown provider_type: {provider_type!r}")
+
+
+def _to_provider_dict(row: _MailProvider) -> Dict[str, Any]:
+    conn = _connection_str(row.provider_type, row.api_key, row.server_id)
+    return {
+        "id":            row.id,
+        "provider_type": row.provider_type,
+        "api_key":       row.api_key,
+        "server_id":     row.server_id,
+        "connection_str": conn,
+        "label":         row.label,
+        "disabled":      row.disabled,
+        "fail_count":    row.fail_count,
+        "cooldown_until": row.cooldown_until,
+        "last_used":     row.last_used,
+        "created_at":    row.created_at,
+        "updated_at":    row.updated_at,
+    }
+
+
+def _record_to_values(record) -> dict:
+    return {
+        "service":       record.service.upper(),
+        "email":         record.email,
+        "password":      record.password,
+        "disabled":      record.disabled,
+        "api_key":       record.api_key,
+        "credits":       record.credits,
+        "refresh_token": record.refresh_token,
+        "access_token":  record.access_token,
+        "account_id":    record.account_id,
+        "id_token":      record.id_token,
+        "expired":       record.expired,
+        "last_refresh":  record.last_refresh,
+        "token_type":    record.token_type,
+        "created_at":    record.created_at,
+        "updated_at":    record.updated_at,
+        "source_email":  getattr(record, "source_email", ""),
+    }
+
+
+# Whitelist update fields — bảo vệ khỏi column injection
+_UPDATABLE = frozenset({
+    "password", "disabled", "api_key", "credits",
+    "refresh_token", "access_token", "account_id", "id_token",
+    "expired", "last_refresh", "token_type", "updated_at",
+    "check_status", "quota_pct", "last_checked", "last_error",
+    "session_state", "totp_secret", "app_password", "source_email",
+})
+
+
+# ── Public API ─────────────────────────────────────────────────────────────────
+
+def _migrate_columns(engine: Engine) -> None:
+    """Thêm columns mới nếu chưa tồn tại (SQLite không hỗ trợ IF NOT EXISTS cho ADD COLUMN)."""
+    new_cols = [
+        ("check_status",  "TEXT NOT NULL DEFAULT ''"),
+        ("quota_pct",     "TEXT NOT NULL DEFAULT ''"),
+        ("last_checked",  "TEXT NOT NULL DEFAULT ''"),
+        ("last_error",    "TEXT NOT NULL DEFAULT ''"),
+        ("session_state", "TEXT NOT NULL DEFAULT ''"),
+        ("totp_secret",   "TEXT NOT NULL DEFAULT ''"),
+        ("app_password",  "TEXT NOT NULL DEFAULT ''"),
+        ("source_email",  "TEXT NOT NULL DEFAULT ''"),
+    ]
+    with engine.connect() as conn:
+        result = conn.execute(text("PRAGMA table_info(accounts)"))
+        existing = {row[1] for row in result}
+        for col_name, col_def in new_cols:
+            if col_name not in existing:
+                conn.execute(text(f"ALTER TABLE accounts ADD COLUMN {col_name} {col_def}"))
+        conn.commit()
+
+
+def _migrate_mailboxes_to_accounts(engine: Engine) -> None:
+    """
+    One-time migration: copy data từ bảng mailboxes cũ → accounts(service='GMAIL').
+    Sau đó DROP bảng mailboxes. Idempotent — kiểm tra bảng tồn tại trước khi làm.
+    """
+    now = _now()
+    # Thêm columns mới nếu chưa tồn tại trong bảng mailboxes cũ (legacy DBs)
+    for col_def in [
+        "password TEXT NOT NULL DEFAULT ''",
+        "source_email TEXT NOT NULL DEFAULT ''",
+        "google_auth_state TEXT NOT NULL DEFAULT ''",
+    ]:
+        try:
+            with engine.connect() as _c:
+                _c.execute(text(f"ALTER TABLE mailboxes ADD COLUMN {col_def}"))
+                _c.commit()
+        except Exception:  # noqa: BLE001 - SQLite ADD COLUMN: ignore duplicate column error
+            pass
+
+    with engine.connect() as conn:
+        tables = {r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
+        if "mailboxes" not in tables:
+            return  # đã migrate rồi
+
+        # Copy mailboxes → accounts(service='GMAIL'), bỏ qua nếu đã tồn tại
+        conn.execute(text("""
+            INSERT OR IGNORE INTO accounts
+                (service, email, app_password, totp_secret, password, source_email,
+                 session_state, disabled, created_at, updated_at,
+                 api_key, credits, refresh_token, access_token, account_id, id_token,
+                 expired, last_refresh, token_type, check_status, quota_pct, last_checked, last_error)
+            SELECT
+                'GMAIL', email, app_password, totp_secret, password, source_email,
+                google_auth_state, disabled, created_at, updated_at,
+                '', 0, '', '', '', '',
+                '', '', '', '', '', '', ''
+            FROM mailboxes
+        """))
+        conn.commit()
+
+        # Drop bảng cũ
+        conn.execute(text("DROP TABLE IF EXISTS mailboxes"))
+        conn.execute(text("DROP INDEX IF EXISTS idx_mailboxes_disabled"))
+        conn.commit()
+
+def _service_has_registrar(service: str) -> bool:
+    from ..services.registry import SUPPORTED_SERVICES
+
+    return service.upper() in set(SUPPORTED_SERVICES)
+
+def _seed_services_catalog(engine: Engine) -> None:
+    from ..services.registry import SUPPORTED_SERVICES
+
+    # Services luôn được seed dù không có registrar (mailbox/session providers)
+    BUILTIN_NO_REGISTRAR: set[str] = {"GMAIL", "KLING"}
+
+    with Session(engine) as s:
+        account_services = set(
+            s.execute(select(_Account.service).distinct().order_by(_Account.service)).scalars().all()
+        )
+        # Services cần seed: supported + builtin providers + services có accounts.
+        # Không xóa services đã có — admin có thể thêm custom services qua UI.
+        supported_upper = {s.upper() for s in SUPPORTED_SERVICES}
+        seed_services = supported_upper | BUILTIN_NO_REGISTRAR | {s.upper() for s in account_services}
+
+        for service in sorted(seed_services):
+            s.execute(
+                sqlite_insert(_Service)
+                .values(name=service, has_registrar=service in supported_upper)
+                .on_conflict_do_nothing(index_elements=["name"])
+            )
+
+        s.commit()
+
+
+def _ensure_service_exists(session: Session, service: str) -> None:
+    normalized = service.upper()
+    session.execute(
+        sqlite_insert(_Service)
+        .values(name=normalized, has_registrar=_service_has_registrar(normalized))
+        .on_conflict_do_nothing(index_elements=["name"])
+    )
+
+
+def _normalize_provider_type(provider_domain: str, compound_key: str) -> str:
+    """
+    Chuẩn hoá provider_domain (short name) sang provider_type (full domain).
+    Ưu tiên suy từ compound_key nếu provider_domain không rõ.
+    """
+    short_map = {
+        "mailslurp": "mailslurp.com",
+        "testmail":  "testmail.app",
+        "mailtm":    "mail.tm",
+        "mail.tm":   "mail.tm",
+        "mailosaur": "mailosaur.com",
+        "mailosaur.com": "mailosaur.com",
+        "guerrillamail": "guerrillamail.com",
+        "guerrillamail.com": "guerrillamail.com",
+    }
+    if provider_domain in short_map:
+        return short_map[provider_domain]
+    # Suy từ compound key
+    if compound_key.startswith("mailslurp.com:"):
+        return "mailslurp.com"
+    if compound_key.startswith("testmail.app:"):
+        return "testmail.app"
+    if compound_key.startswith("mailosaur.com:"):
+        return "mailosaur.com"
+    if compound_key.startswith("guerrillamail.com"):
+        return "guerrillamail.com"
+    if compound_key.startswith("http"):
+        return "mail.tm"
+    return provider_domain  # giữ nguyên nếu không nhận ra
+
+
+def _split_compound_key(provider_type: str, compound_key: str) -> tuple[str, str]:
+    """
+    Tách compound key string → (raw_api_key, server_id).
+    Returns (api_key, server_id)
+    """
+    match provider_type:
+        case "mailslurp.com":
+            # "mailslurp.com:SK_xxx" → ("SK_xxx", "")
+            raw = compound_key.removeprefix("mailslurp.com:")
+            return raw, ""
+        case "testmail.app":
+            # "testmail.app:NAMESPACE:APIKEY" → ("APIKEY", "NAMESPACE")
+            rest = compound_key.removeprefix("testmail.app:")
+            ns, _, key = rest.partition(":")
+            return key, ns
+        case "mailosaur.com":
+            # "mailosaur.com:API_KEY:SERVER_ID" → ("API_KEY", "SERVER_ID")
+            rest = compound_key.removeprefix("mailosaur.com:")
+            api_key, _, server_id = rest.partition(":")
+            return api_key, server_id
+        case "guerrillamail.com":
+            return "", ""
+        case _:  # mail.tm — key là base URL
+            # "https://api.mail.tm" → ("", "https://api.mail.tm")
+            return "", compound_key
+
+
+def _migrate_provider_domain(engine: Engine) -> None:
+    """
+    Migration tổng hợp cho mail_providers + provider_domain_tags.
+    Chạy theo thứ tự: provider_service_tags cũ → provider_domain_tags → schema mới.
+    """
+    with engine.connect() as conn:
+        tables = {row[0] for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
+
+        # Bước 1: Migrate old provider_service_tags → provider_domain_tags (nếu còn)
+        if "provider_service_tags" in tables and "provider_domain_tags" in tables:
+            cols_pdt = {row[1] for row in conn.execute(text("PRAGMA table_info(provider_domain_tags)"))}
+            domain_col = "provider_domain" if "provider_domain" in cols_pdt else "provider_type"
+            conn.execute(text(f"""
+                INSERT OR IGNORE INTO provider_domain_tags ({domain_col}, tag)
+                SELECT DISTINCT mp.provider_domain, pst.tag
+                FROM provider_service_tags pst
+                JOIN mail_providers mp ON mp.id = pst.provider_id
+            """))
+            conn.execute(text("DROP TABLE IF EXISTS provider_service_tags"))
+
+        # Bước 2: Rename provider_type → provider_domain nếu DB cực kỳ cũ
+        if "mail_providers" in tables:
+            cols = {row[1] for row in conn.execute(text("PRAGMA table_info(mail_providers)"))}
+            if "provider_type" in cols and "provider_domain" not in cols and "server_id" not in cols:
+                conn.execute(text("ALTER TABLE mail_providers RENAME COLUMN provider_type TO provider_domain"))
+                cols = {row[1] for row in conn.execute(text("PRAGMA table_info(mail_providers)"))}
+
+        conn.commit()
+
+
+def _migrate_mail_provider_schema(engine: Engine) -> None:
+    """
+    Migration chính: tách compound api_key → (provider_type, api_key, server_id).
+    Recreate bảng mail_providers với schema mới.
+    Chỉ chạy nếu bảng chưa migrate (chưa có cột server_id hoặc còn cột provider_domain).
+    """
+    with engine.connect() as conn:
+        tables = {row[0] for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
+        if "mail_providers" not in tables:
+            return
+
+        cols = {row[1] for row in conn.execute(text("PRAGMA table_info(mail_providers)"))}
+
+        # Kiểm tra cần migrate không
+        already_done = "server_id" in cols and "provider_type" in cols and "provider_domain" not in cols
+        if already_done:
+            return
+
+        # Đọc toàn bộ dữ liệu cũ
+        old_domain_col = "provider_domain" if "provider_domain" in cols else "provider_type"
+        rows = conn.execute(text(
+            f"SELECT id, {old_domain_col}, api_key, label, disabled, fail_count, "
+            "cooldown_until, last_used, created_at, updated_at FROM mail_providers"
+        )).fetchall()
+
+        # Tạo bảng mới
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS mail_providers_new (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                provider_type TEXT    NOT NULL,
+                api_key       TEXT    NOT NULL DEFAULT '',
+                server_id     TEXT    NOT NULL DEFAULT '',
+                label         TEXT    NOT NULL DEFAULT '',
+                disabled      BOOLEAN NOT NULL DEFAULT 0,
+                fail_count    INTEGER NOT NULL DEFAULT 0,
+                cooldown_until TEXT   NOT NULL DEFAULT '',
+                last_used     TEXT    NOT NULL DEFAULT '',
+                created_at    TEXT    NOT NULL,
+                updated_at    TEXT    NOT NULL,
+                UNIQUE(provider_type, api_key, server_id)
+            )
+        """))
+
+        # Migrate từng row
+        seen: set[tuple] = set()
+        for row in rows:
+            _id, old_domain, compound_key, label, disabled, fail_count, cooldown_until, last_used, created_at, updated_at = row
+            ptype = _normalize_provider_type(old_domain or "", compound_key or "")
+            raw_key, server_id = _split_compound_key(ptype, compound_key or "")
+            # Dedup: bỏ qua nếu (ptype, raw_key, server_id) đã tồn tại
+            dedup_key = (ptype, raw_key, server_id)
+            if dedup_key in seen:
+                continue
+            seen.add(dedup_key)
+            conn.execute(text("""
+                INSERT OR IGNORE INTO mail_providers_new
+                (provider_type, api_key, server_id, label, disabled, fail_count,
+                 cooldown_until, last_used, created_at, updated_at)
+                VALUES (:pt, :key, :sid, :label, :disabled, :fc, :cu, :lu, :ca, :ua)
+            """), {
+                "pt": ptype, "key": raw_key, "sid": server_id,
+                "label": label or "", "disabled": disabled or 0, "fc": fail_count or 0,
+                "cu": cooldown_until or "", "lu": last_used or "",
+                "ca": created_at or _now(), "ua": updated_at or _now(),
+            })
+
+        # Migrate provider_domain_tags: rename column provider_domain → provider_type + normalize values
+        if "provider_domain_tags" in tables:
+            tag_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(provider_domain_tags)"))}
+            tag_domain_col = "provider_domain" if "provider_domain" in tag_cols else "provider_type"
+            old_tags = conn.execute(text(f"SELECT {tag_domain_col}, tag FROM provider_domain_tags")).fetchall()
+
+            conn.execute(text("DROP TABLE IF EXISTS provider_domain_tags"))
+            conn.execute(text("""
+                CREATE TABLE provider_domain_tags (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    provider_type TEXT    NOT NULL,
+                    tag           TEXT    NOT NULL,
+                    UNIQUE(provider_type, tag)
+                )
+            """))
+            for old_domain, tag in old_tags:
+                # Normalize provider_domain → provider_type
+                # (không có compound key để suy, dùng short_map trực tiếp)
+                ptype = _normalize_provider_type(old_domain or "", "")
+                if not ptype:
+                    continue
+                conn.execute(text("""
+                    INSERT OR IGNORE INTO provider_domain_tags (provider_type, tag)
+                    VALUES (:pt, :tag)
+                """), {"pt": ptype, "tag": tag})
+
+        # Swap bảng
+        conn.execute(text("DROP TABLE mail_providers"))
+        conn.execute(text("ALTER TABLE mail_providers_new RENAME TO mail_providers"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_mail_providers_type ON mail_providers(provider_type)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_mail_providers_disabled ON mail_providers(disabled)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_domain_tag ON provider_domain_tags(tag)"))
+
+        conn.commit()
+
+
+def _seed_default_providers(engine: Engine) -> None:
+    """Seed mail.tm và guerrillamail.com làm providers mặc định (không cần API key)."""
+    now = _now()
+    defaults = [
+        {"provider_type": "mail.tm",          "server_id": "https://api.mail.tm", "label": "mail.tm"},
+        {"provider_type": "guerrillamail.com", "server_id": "",                   "label": "Guerrilla Mail"},
+    ]
+    with Session(engine) as s:
+        for d in defaults:
+            s.execute(
+                sqlite_insert(_MailProvider)
+                .values(
+                    provider_type=d["provider_type"],
+                    api_key="",
+                    server_id=d["server_id"],
+                    label=d["label"],
+                    disabled=False,
+                    fail_count=0,
+                    cooldown_until="",
+                    last_used="",
+                    created_at=now,
+                    updated_at=now,
+                )
+                .on_conflict_do_nothing()
+            )
+        s.commit()
+
+
+def init_db(db_path: Path) -> None:
+    """Tạo bảng + index nếu chưa có (idempotent). Migration only."""
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    engine = _get_engine(db_path)
+    _Base.metadata.create_all(engine)
+    _migrate_columns(engine)
+    _migrate_provider_domain(engine)       # cũ: provider_service_tags + rename
+    _migrate_mail_provider_schema(engine)  # mới: split compound key → proper columns
+    _migrate_mailboxes_to_accounts(engine) # migrate mailboxes table → accounts(service='GMAIL')
+    _seed_services_catalog(engine)         # catalog services = source of truth cho runtime UI/API
+    _seed_default_providers(engine)        # seed mail.tm + guerrillamail nếu chưa có
+
+
+def insert_account(db_path: Path, record) -> bool:
+    """INSERT — bỏ qua nếu trùng (service, email). Trả True nếu thực sự insert."""
+    values = _record_to_values(record)
+    stmt = sqlite_insert(_Account).values(**values).prefix_with("OR IGNORE")
+    with Session(_get_engine(db_path)) as s:
+        _ensure_service_exists(s, values["service"])
+        result = s.execute(stmt)
+        s.commit()
+        return result.rowcount > 0
+
+
+def upsert_account(db_path: Path, record) -> None:
+    """
+    INSERT — nếu trùng (service, email) thì UPDATE các field thay đổi.
+    Giữ nguyên id + created_at gốc.
+    """
+    values = _record_to_values(record)
+    stmt = (
+        sqlite_insert(_Account)
+        .values(**values)
+        .on_conflict_do_update(
+            index_elements=["service", "email"],
+            set_={k: values[k] for k in _UPDATABLE if k in values},
+        )
+    )
+    with Session(_get_engine(db_path)) as s:
+        _ensure_service_exists(s, values["service"])
+        s.execute(stmt)
+        s.commit()
+
+
+def get_distinct_services(db_path: Path) -> List[str]:
+    with Session(_get_engine(db_path)) as s:
+        rows = s.execute(
+            select(_Service.name)
+            .order_by(_Service.name)
+        ).scalars().all()
+    return list(rows)
+
+
+def service_exists(db_path: Path, service: str) -> bool:
+    with Session(_get_engine(db_path)) as s:
+        row = s.scalar(select(_Service.name).where(_Service.name == service.upper()).limit(1))
+    return row is not None
+
+
+def add_service(db_path: Path, name: str, has_registrar: bool = False) -> bool:
+    """Thêm service mới. Trả về True nếu tạo mới, False nếu đã tồn tại."""
+    with Session(_get_engine(db_path)) as s:
+        existing = s.scalar(select(_Service.name).where(_Service.name == name.upper()).limit(1))
+        if existing:
+            return False
+        s.add(_Service(name=name.upper(), has_registrar=has_registrar))
+        s.commit()
+    return True
+
+
+def delete_service(db_path: Path, name: str) -> bool:
+    """Xóa service. Trả về True nếu xóa được, False nếu không tìm thấy."""
+    with Session(_get_engine(db_path)) as s:
+        row = s.scalar(select(_Service).where(_Service.name == name.upper()).limit(1))
+        if not row:
+            return False
+        s.delete(row)
+        s.commit()
+    return True
+
+
+def get_accounts(
+    db_path: Path,
+    service: Optional[str] = None,
+    include_disabled: bool = True,
+) -> List[Dict[str, Any]]:
+    stmt = select(_Account)
+    if service is not None:
+        stmt = stmt.where(_Account.service == service.upper())
+    if not include_disabled:
+        stmt = stmt.where(_Account.disabled.is_(False))
+    stmt = stmt.order_by(_Account.id)
+    with Session(_get_engine(db_path)) as s:
+        rows = s.scalars(stmt).all()
+    return [_to_dict(r) for r in rows]
+
+
+def get_account_by_email(
+    db_path: Path, service: str, email: str
+) -> Optional[Dict[str, Any]]:
+    stmt = select(_Account).where(
+        _Account.service == service.upper(),
+        _Account.email == email,
+    )
+    with Session(_get_engine(db_path)) as s:
+        row = s.scalars(stmt).first()
+    return _to_dict(row) if row else None
+
+
+def update_account(db_path: Path, service: str, email: str, **fields) -> bool:
+    """Update specific fields. Tự động set updated_at. Trả True nếu có row."""
+    safe = {k: v for k, v in fields.items() if k in _UPDATABLE}
+    if not safe:
+        return False
+    safe.setdefault("updated_at", _now())
+    stmt = (
+        update(_Account)
+        .where(_Account.service == service.upper(), _Account.email == email)
+        .values(**safe)
+    )
+    with Session(_get_engine(db_path)) as s:
+        result = s.execute(stmt)
+        s.commit()
+        return result.rowcount > 0
+
+
+def delete_account(db_path: Path, service: str, email: str) -> bool:
+    stmt = (
+        delete(_Account)
+        .where(_Account.service == service.upper(), _Account.email == email)
+    )
+    with Session(_get_engine(db_path)) as s:
+        result = s.execute(stmt)
+        s.commit()
+        return result.rowcount > 0
+
+
+def delete_accounts(db_path: Path, service: str, emails: set[str]) -> int:
+    if not emails:
+        return 0
+    stmt = (
+        delete(_Account)
+        .where(_Account.service == service.upper(), _Account.email.in_(emails))
+    )
+    with Session(_get_engine(db_path)) as s:
+        result = s.execute(stmt)
+        s.commit()
+        return result.rowcount
+
+
+def delete_disabled_service_accounts(db_path: Path, service: str) -> int:
+    """Xóa tất cả account có trạng thái disabled.
+    service="ALL" → xóa tất cả services.
+    Trả về số lượng đã xóa.
+    """
+    from sqlalchemy import or_
+    disabled_cond = or_(
+        _Account.disabled == True,
+        _Account.check_status.in_(["invalid", "error"]),
+    )
+    if service.upper() == "ALL":
+        stmt = delete(_Account).where(disabled_cond)
+    else:
+        stmt = delete(_Account).where(_Account.service == service.upper(), disabled_cond)
+    with Session(_get_engine(db_path)) as s:
+        result = s.execute(stmt)
+        s.commit()
+        return result.rowcount
+
+
+def count_accounts(db_path: Path, service: str) -> int:
+    from sqlalchemy import func
+    stmt = select(func.count()).where(_Account.service == service.upper())
+    with Session(_get_engine(db_path)) as s:
+        return s.scalar(stmt) or 0
+
+
+def get_used_gmail_variations(db_path: Path, source_email: str, service: str | None = None) -> list[dict]:
+    """
+    Trả danh sách accounts đã dùng variations của source_email (bao gồm chính email đó).
+    service=None → tất cả services.
+    """
+    canonical = source_email.lower().strip()
+    with Session(_get_engine(db_path)) as s:
+        stmt = select(_Account).where(
+            or_(
+                _Account.email == canonical,
+                _Account.source_email == canonical,
+            )
+        )
+        if service:
+            stmt = stmt.where(_Account.service == service.upper())
+        rows = s.scalars(stmt).all()
+    return [_to_dict(r) for r in rows]
+
+
+def check_gmail_variations_availability(
+    db_path: Path,
+    variations: list[str],
+    service: str,
+) -> dict[str, bool]:
+    """
+    Kiểm tra danh sách email variation nào đã tồn tại trong DB cho service đó.
+    Trả về dict {email: is_available} — available = chưa có trong DB.
+    """
+    svc = service.upper()
+    lower_vars = [v.lower() for v in variations]
+    with Session(_get_engine(db_path)) as s:
+        existing = set(s.scalars(
+            select(_Account.email).where(
+                _Account.service == svc,
+                _Account.email.in_(lower_vars),
+            )
+        ).all())
+    return {v: v not in existing for v in lower_vars}
+
+
+def bulk_insert(db_path: Path, records: list) -> int:
+    if not records:
+        return 0
+    inserted = 0
+    with Session(_get_engine(db_path)) as s:
+        for record in records:
+            result = s.execute(
+                sqlite_insert(_Account)
+                .values(**_record_to_values(record))
+                .prefix_with("OR IGNORE")
+            )
+            inserted += result.rowcount
+        s.commit()
+    return inserted
+
+
+def upsert_mail_provider(
+    db_path: Path,
+    provider_type: str,
+    api_key: str = "",
+    server_id: str = "",
+    label: str = "",
+) -> int:
+    """
+    Insert hoặc update một mail provider. Trả về provider id.
+    UNIQUE key: (provider_type, api_key, server_id).
+    Tags KHÔNG được quản lý ở đây — chỉ qua UI (per-type).
+    """
+    now = _now()
+    stmt = (
+        sqlite_insert(_MailProvider)
+        .values(
+            provider_type=provider_type,
+            api_key=api_key,
+            server_id=server_id,
+            label=label,
+            disabled=False,
+            fail_count=0,
+            cooldown_until="",
+            last_used="",
+            created_at=now,
+            updated_at=now,
+        )
+        .on_conflict_do_update(
+            index_elements=["provider_type", "api_key", "server_id"],
+            set_={"label": label, "updated_at": now, "disabled": False},
+        )
+    )
+    with Session(_get_engine(db_path)) as s:
+        s.execute(stmt)
+        prov = s.scalars(
+            select(_MailProvider).where(
+                _MailProvider.provider_type == provider_type,
+                _MailProvider.api_key == api_key,
+                _MailProvider.server_id == server_id,
+            )
+        ).first()
+        provider_id = prov.id  # type: ignore[union-attr]
+        s.commit()
+    return provider_id
+
+
+def get_mail_providers(
+    db_path: Path,
+    service_tag: str | None = None,
+) -> List[Dict[str, Any]]:
+    """
+    Trả danh sách mail providers active.
+    service_tag=None → tất cả.
+    service_tag='chatgpt' → providers có provider_type tag == 'chatgpt'.
+    """
+    if not db_path.exists():
+        return []
+    svc_tag = service_tag.lower() if service_tag else None
+    with Session(_get_engine(db_path)) as s:
+        stmt = select(_MailProvider).where(_MailProvider.disabled.is_(False))
+        if svc_tag:
+            has_tag = exists().where(
+                _ProviderDomainTag.provider_type == _MailProvider.provider_type,
+                _ProviderDomainTag.tag == svc_tag,
+            )
+            stmt = stmt.where(has_tag)
+        rows = s.scalars(stmt).all()
+        result = [_to_provider_dict(r) for r in rows]
+
+        # Synthetic gmail.com rows: mỗi Gmail account có session là một "provider" riêng
+        gmail_tagged = (
+            not svc_tag
+            or s.scalar(
+                select(func.count()).where(
+                    _ProviderDomainTag.provider_type == "gmail.com",
+                    _ProviderDomainTag.tag == svc_tag,
+                )
+            ) > 0
+        )
+        if gmail_tagged:
+            gmail_rows = s.scalars(
+                select(_Account)
+                .where(_Account.service == "GMAIL")
+                .where(_Account.disabled.is_(False))
+                .where(_Account.session_state.isnot(None))
+                .where(_Account.session_state != "")
+                .order_by(_Account.email)
+            ).all()
+            import base64, json as _json
+            result.extend({
+                "id":             None,
+                "provider_type":  "gmail.com",
+                "api_key":        row.email,
+                "server_id":      "",
+                "connection_str": "gmail.com:{email}:{meta}".format(
+                    email=row.email,
+                    meta=base64.urlsafe_b64encode(
+                        _json.dumps({"s": row.session_state, "p": row.password, "t": row.totp_secret}, separators=(",", ":")).encode()
+                    ).decode(),
+                ),
+                "label":          row.email,
+                "disabled":       False,
+                "fail_count":     0,
+                "cooldown_until": "",
+                "last_used":      "",
+                "created_at":     row.created_at,
+                "updated_at":     row.updated_at,
+            } for row in gmail_rows)
+
+    return result
+
+
+def update_accounts_bulk(
+    db_path: Path, service: str, updates: List[Dict[str, Any]]
+) -> int:
+    """Batch update. Mỗi item phải có 'email' + các field cần update."""
+    total = 0
+    with Session(_get_engine(db_path)) as s:
+        for item in updates:
+            email = item.get("email")
+            if not email:
+                continue
+            safe = {k: v for k, v in item.items() if k in _UPDATABLE and k != "email"}
+            if not safe:
+                continue
+            safe.setdefault("updated_at", _now())
+            result = s.execute(
+                update(_Account)
+                .where(_Account.service == service.upper(), _Account.email == email)
+                .values(**safe)
+            )
+            total += result.rowcount
+        s.commit()
+    return total
+
+
+def get_all_providers_with_tags(db_path: Path) -> List[Dict[str, Any]]:
+    """Trả tất cả providers (kể cả disabled) kèm danh sách tags (từ provider_type). 2 queries."""
+    if not db_path.exists():
+        return []
+    with Session(_get_engine(db_path)) as s:
+        providers = s.scalars(select(_MailProvider)).all()
+        if not providers:
+            return []
+        # 1 query cho tất cả tags của các types liên quan
+        ptypes = {p.provider_type for p in providers}
+        tag_rows = s.execute(
+            select(_ProviderDomainTag.provider_type, _ProviderDomainTag.tag).where(
+                _ProviderDomainTag.provider_type.in_(ptypes)
+            )
+        ).all()
+        type_tags: Dict[str, List[str]] = {pt: [] for pt in ptypes}
+        for pt, tag in tag_rows:
+            type_tags[pt].append(tag)
+        result = []
+        for p in providers:
+            d = _to_provider_dict(p)
+            d["tags"] = sorted(type_tags.get(p.provider_type, []))
+            result.append(d)
+    return result
+
+
+def update_provider(db_path: Path, provider_id: int, **fields) -> bool:
+    """Update provider fields (disabled, label, ...). Trả True nếu tìm thấy row."""
+    allowed = {"disabled", "label", "fail_count", "cooldown_until"}
+    safe = {k: v for k, v in fields.items() if k in allowed}
+    if not safe:
+        return False
+    safe["updated_at"] = _now()
+    with Session(_get_engine(db_path)) as s:
+        result = s.execute(
+            update(_MailProvider).where(_MailProvider.id == provider_id).values(**safe)
+        )
+        s.commit()
+    return result.rowcount > 0
+
+
+def get_provider_domains(db_path: Path) -> List[Dict[str, Any]]:
+    """
+    Trả danh sách provider types (mail.tm, mailslurp.com, testmail.app, ...).
+    Mỗi type gồm: tags (từ provider_domain_tags), total, active count. 2 queries.
+    Gmail (gmail.com) là synthetic row — đếm từ bảng mailboxes.
+    """
+    if not db_path.exists():
+        return []
+    with Session(_get_engine(db_path)) as s:
+        # 1 query: count total + active per type từ _MailProvider
+        counts = s.execute(
+            select(
+                _MailProvider.provider_type,
+                func.count().label("total"),
+                func.sum(case((_MailProvider.disabled == False, 1), else_=0)).label("active"),
+            ).group_by(_MailProvider.provider_type)
+        ).all()
+
+        # 1 query: tất cả tags
+        tag_rows = s.execute(
+            select(_ProviderDomainTag.provider_type, _ProviderDomainTag.tag)
+        ).all()
+        type_tags: Dict[str, List[str]] = {}
+        for pt, tag in tag_rows:
+            type_tags.setdefault(pt, []).append(tag)
+
+        result = [
+            {
+                "domain": row.provider_type,
+                "tags":   sorted(type_tags.get(row.provider_type, [])),
+                "total":  row.total,
+                "active": row.active or 0,
+            }
+            for row in sorted(counts, key=lambda r: r.provider_type)
+        ]
+
+        # Synthetic row gmail.com — đếm từ accounts(service='GMAIL')
+        gmail_counts = s.execute(
+            select(
+                func.count().label("total"),
+                func.sum(case((_Account.disabled == False, 1), else_=0)).label("active"),
+            ).where(_Account.service == "GMAIL")
+        ).one()
+        if gmail_counts.total:
+            result.append({
+                "domain": "gmail.com",
+                "tags":   sorted(type_tags.get("gmail.com", [])),
+                "total":  gmail_counts.total,
+                "active": gmail_counts.active or 0,
+            })
+            result.sort(key=lambda r: r["domain"])
+
+        return result
+
+
+def set_provider_domain_tags(db_path: Path, provider_domain: str, tags: List[str]) -> int:
+    """
+    Ghi đè tags cho một provider_type (xóa cũ, insert mới).
+    Tham số provider_domain thực ra là provider_type (giữ tên để không break API route).
+    Trả về số tags đã insert.
+    """
+    clean = [t.strip().lower() for t in tags if t.strip()]
+    with Session(_get_engine(db_path)) as s:
+        s.execute(delete(_ProviderDomainTag).where(
+            _ProviderDomainTag.provider_type == provider_domain
+        ))
+        for tag in clean:
+            s.execute(
+                sqlite_insert(_ProviderDomainTag)
+                .values(provider_type=provider_domain, tag=tag)
+                .on_conflict_do_nothing()
+            )
+        s.commit()
+    return len(clean)
+
+
+def cycle_provider_tag(db_path: Path, provider_domain: str, service: str) -> List[str]:
+    """
+    Cycle tri-state tag cho một service trên provider_domain:
+      (không có) → {svc}  →  {svc}:blocked  →  (không có)
+    Trả về danh sách tags mới sau khi cycle.
+    """
+    with Session(_get_engine(db_path)) as s:
+        tag_rows = s.scalars(
+            select(_ProviderDomainTag.tag).where(
+                _ProviderDomainTag.provider_type == provider_domain
+            )
+        ).all()
+        current_tags = list(tag_rows)
+
+        active_key  = service.strip().lower()
+        blocked_key = f"{active_key}:blocked"
+
+        if active_key in current_tags:
+            # active → blocked
+            s.execute(delete(_ProviderDomainTag).where(
+                _ProviderDomainTag.provider_type == provider_domain,
+                _ProviderDomainTag.tag == active_key,
+            ))
+            s.execute(
+                sqlite_insert(_ProviderDomainTag)
+                .values(provider_type=provider_domain, tag=blocked_key)
+                .on_conflict_do_nothing()
+            )
+            next_tags = [t for t in current_tags if t != active_key] + [blocked_key]
+        elif blocked_key in current_tags:
+            # blocked → empty
+            s.execute(delete(_ProviderDomainTag).where(
+                _ProviderDomainTag.provider_type == provider_domain,
+                _ProviderDomainTag.tag == blocked_key,
+            ))
+            next_tags = [t for t in current_tags if t != blocked_key]
+        else:
+            # empty → active
+            s.execute(
+                sqlite_insert(_ProviderDomainTag)
+                .values(provider_type=provider_domain, tag=active_key)
+                .on_conflict_do_nothing()
+            )
+            next_tags = current_tags + [active_key]
+
+        s.commit()
+    return sorted(next_tags)
+
+
+# ── Mailbox public API ─────────────────────────────────────────────────────────
+
+def get_mailboxes(db_path: Path) -> List[Dict[str, Any]]:
+    """Trả tất cả Gmail mailboxes (accounts WHERE service='GMAIL'), sắp xếp theo email."""
+    if not db_path.exists():
+        return []
+    with Session(_get_engine(db_path)) as s:
+        rows = s.scalars(
+            select(_Account).where(_Account.service == "GMAIL").order_by(_Account.email)
+        ).all()
+    return [_to_mailbox_dict(r) for r in rows]
+
+
+def get_mailbox_record(db_path: Path, email: str) -> Optional[Dict[str, Any]]:
+    """Lấy một mailbox theo email (canonical lowercase)."""
+    canonical = email.strip().lower()
+    with Session(_get_engine(db_path)) as s:
+        row = s.scalars(
+            select(_Account).where(_Account.service == "GMAIL", _Account.email == canonical)
+        ).first()
+    return _to_mailbox_dict(row) if row else None
+
+
+def upsert_mailbox_record(
+    db_path: Path,
+    email: str,
+    app_password: str = "",
+    totp_secret: str = "",
+    password: str = "",
+    source_email: str = "",
+    label: str = "",
+    disabled: bool = False,
+) -> Dict[str, Any]:
+    """
+    Insert hoặc update Gmail mailbox — stored as accounts(service='GMAIL').
+    Trả về dict của mailbox sau khi lưu.
+    """
+    canonical = email.strip().lower()
+    now = _now()
+    stmt = (
+        sqlite_insert(_Account)
+        .values(
+            service="GMAIL",
+            email=canonical,
+            app_password=app_password,
+            totp_secret=totp_secret,
+            password=password,
+            source_email=source_email,
+            disabled=disabled,
+            created_at=now,
+            updated_at=now,
+            # required cols with defaults
+            api_key="", credits=0, refresh_token="", access_token="",
+            account_id="", id_token="", expired="", last_refresh="",
+            token_type="", check_status="", quota_pct="", last_checked="",
+            last_error="", session_state="",
+        )
+        .on_conflict_do_update(
+            index_elements=["service", "email"],
+            set_={
+                "app_password": app_password,
+                "totp_secret":  totp_secret,
+                "password":     password,
+                "source_email": source_email,
+                "disabled":     disabled,
+                "updated_at":   now,
+            },
+        )
+    )
+    with Session(_get_engine(db_path)) as s:
+        _ensure_service_exists(s, "GMAIL")
+        s.execute(stmt)
+        s.commit()
+        row = s.scalars(
+            select(_Account).where(_Account.service == "GMAIL", _Account.email == canonical)
+        ).first()
+    return _to_mailbox_dict(row)  # type: ignore[arg-type]
+
+
+def delete_mailbox_record(db_path: Path, email: str) -> bool:
+    """Xóa Gmail mailbox (account service='GMAIL'). Trả True nếu có row bị xóa."""
+    canonical = email.strip().lower()
+    with Session(_get_engine(db_path)) as s:
+        result = s.execute(
+            delete(_Account).where(_Account.service == "GMAIL", _Account.email == canonical)
+        )
+        s.commit()
+    return result.rowcount > 0
+
+
+def save_mailbox_google_auth_state(db_path: Path, email: str, auth_state_json: str) -> bool:
+    """Lưu Playwright storage_state JSON vào accounts.session_state. Trả True nếu update được."""
+    canonical = email.strip().lower()
+    now = _now()
+    with Session(_get_engine(db_path)) as s:
+        result = s.execute(
+            update(_Account)
+            .where(_Account.service == "GMAIL", _Account.email == canonical)
+            .values(session_state=auth_state_json, updated_at=now)
+        )
+        s.commit()
+    return result.rowcount > 0
+
+
+def get_mailbox_google_auth_state(db_path: Path, email: str) -> str | None:
+    """Lấy google_auth_state JSON (= accounts.session_state). Trả None nếu không tồn tại."""
+    canonical = email.strip().lower()
+    with Session(_get_engine(db_path)) as s:
+        row = s.scalars(
+            select(_Account).where(_Account.service == "GMAIL", _Account.email == canonical)
+        ).first()
+    if row is None:
+        return None
+    return row.session_state or None
+
+
+# ── Mailbox Service Blocks public API ─────────────────────────────────────────
+
+def block_mailbox_for_service(
+    db_path: Path,
+    email: str,
+    service: str,
+    reason: str = "",
+) -> None:
+    """
+    Đánh dấu Gmail mailbox là không khả dụng cho service cụ thể.
+    Idempotent: upsert theo (email, service). Chỉ cập nhật reason + blocked_at nếu đã tồn tại.
+    """
+    canonical = email.strip().lower()
+    svc = service.upper()
+    now = _now()
+    stmt = (
+        sqlite_insert(_MailboxServiceBlock)
+        .values(email=canonical, service=svc, reason=reason, blocked_at=now)
+        .on_conflict_do_update(
+            index_elements=["email", "service"],
+            set_={"reason": reason, "blocked_at": now},
+        )
+    )
+    with Session(_get_engine(db_path)) as s:
+        s.execute(stmt)
+        s.commit()
+
+
+def unblock_mailbox_for_service(db_path: Path, email: str, service: str) -> bool:
+    """Xóa block. Trả True nếu có row bị xóa."""
+    canonical = email.strip().lower()
+    svc = service.upper()
+    with Session(_get_engine(db_path)) as s:
+        result = s.execute(
+            delete(_MailboxServiceBlock).where(
+                _MailboxServiceBlock.email == canonical,
+                _MailboxServiceBlock.service == svc,
+            )
+        )
+        s.commit()
+    return result.rowcount > 0
+
+
+def is_mailbox_blocked_for_service(db_path: Path, email: str, service: str) -> bool:
+    """Kiểm tra mailbox có bị block cho service không."""
+    canonical = email.strip().lower()
+    svc = service.upper()
+    with Session(_get_engine(db_path)) as s:
+        row = s.get(_MailboxServiceBlock, (canonical, svc))
+    return row is not None
+
+
+def get_available_mailboxes_for_service(db_path: Path, service: str) -> List[Dict[str, Any]]:
+    """
+    Trả danh sách Gmail mailboxes (accounts service='GMAIL') khả dụng cho service:
+    - không bị disabled
+    - không có block entry cho service này
+    Dùng khi chọn Gmail account để đăng ký hàng loạt.
+    """
+    if not db_path.exists():
+        return []
+    svc = service.upper()
+    blocked_emails = select(_MailboxServiceBlock.email).where(
+        _MailboxServiceBlock.service == svc
+    )
+    stmt = (
+        select(_Account)
+        .where(_Account.service == "GMAIL")  # noqa: E712
+        .where(_Account.disabled == False)   # noqa: E712
+        .where(_Account.email.not_in(blocked_emails))
+        .order_by(_Account.email)
+    )
+    with Session(_get_engine(db_path)) as s:
+        rows = s.scalars(stmt).all()
+    return [_to_mailbox_dict(r) for r in rows]
+
+
+def get_service_blocks(db_path: Path, service: str | None = None) -> List[Dict[str, Any]]:
+    """
+    Trả toàn bộ block entries. Lọc theo service nếu truyền vào.
+    Mỗi item: {email, service, reason, blocked_at}.
+    """
+    if not db_path.exists():
+        return []
+    stmt = select(_MailboxServiceBlock)
+    if service is not None:
+        stmt = stmt.where(_MailboxServiceBlock.service == service.upper())
+    stmt = stmt.order_by(_MailboxServiceBlock.service, _MailboxServiceBlock.email)
+    with Session(_get_engine(db_path)) as s:
+        rows = s.scalars(stmt).all()
+    return [
+        {"email": r.email, "service": r.service, "reason": r.reason, "blocked_at": r.blocked_at}
+        for r in rows
+    ]
+

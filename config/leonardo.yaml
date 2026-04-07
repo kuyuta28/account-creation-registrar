@@ -1,0 +1,8 @@
+leonardo:
+  login_url: "https://app.leonardo.ai/auth/login"
+  app_url_contains: "app.leonardo.ai"
+  verification_sender: "leonardo.ai"
+  otp_wait_sec: 180
+  otp_poll_interval: 4
+  post_submit_wait_ms: 3000
+  turnstile_timeout_sec: 300

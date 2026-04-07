@@ -1,0 +1,50 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-gray-900 font-sans antialiased;
+  }
+  * {
+    @apply box-border;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-xl shadow-card border border-gray-100;
+  }
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white hover:bg-gray-50 text-gray-700 text-sm font-medium transition-all shadow-sm border border-gray-200 disabled:opacity-40;
+  }
+  /* btn = base wrapper, dùng kèm btn-primary / btn-secondary / btn-sm / btn-xs */
+  .btn {
+    @apply inline-flex items-center gap-1.5 rounded-lg font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .btn.btn-primary {
+    @apply px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm shadow-sm;
+  }
+  .btn.btn-secondary {
+    @apply px-4 py-2 bg-white hover:bg-gray-50 text-gray-700 text-sm shadow-sm border border-gray-200;
+  }
+  .btn.btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+  .btn.btn-xs {
+    @apply px-2 py-1 text-xs;
+  }
+  .input-sm {
+    @apply bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 transition-all;
+  }
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+  .input {
+    @apply bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 transition-all;
+  }
+}
