@@ -4,6 +4,12 @@ Browser automation toolkit — tự động đăng ký tài khoản trên các A
 
 **Stack**: FastAPI · Playwright/Camoufox · SQLAlchemy · asyncio concurrent jobs
 
+## Setup
+
+```powershell
+.\setup.ps1
+```
+
 ## Run
 
 ```bash
