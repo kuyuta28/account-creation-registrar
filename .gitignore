@@ -1,0 +1,40 @@
+# ===== Runtime artifacts =====
+debug/
+logs/
+screenshots/
+data/
+auth/
+output/
+*_accounts.json
+
+# ===== Python =====
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.venv/
+
+# ===== Frontend =====
+ui/node_modules/
+ui/dist/
+ui/coverage/
+ui/src-tauri/target/
+ui/app-icon.png
+ui/src-tauri/gen/
+node_modules/
+
+# ===== Tauri =====
+*.ico
+*.icns
+!ui/src-tauri/icons/
+
+# ===== Misc =====
+*.log
+.env
+.env.*
+test_out*.txt
+_test_results*.txt
+_unit_results*.txt
+run_*.txt
+results.json
