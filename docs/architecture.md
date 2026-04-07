@@ -3,16 +3,15 @@
 ## Repository Structure
 
 ```
-account-creation/          ← root container (git)
-├── registrar/             ← core account-creation service
-├── aa-proxy/              ← image generation proxy (git riêng)
-├── tts-proxy/             ← ElevenLabs TTS proxy (git riêng)
-├── mail-service/          ← mail inbox service (git riêng)
-├── any-auto-register/     ← submodule (external)
-└── docs/                  ← cross-service docs (file này)
+account-creation/          ← root container (không có git)
+├── registrar/             ← core service (git riêng, port 8799)
+├── aa-proxy/              ← image proxy (git riêng, port 8802)
+├── tts-proxy/             ← TTS proxy (git riêng, port 8800)
+├── mail-service/          ← mail service (git riêng, port 8801)
+└── any-auto-register/     ← external submodule
 ```
 
-Mỗi service **độc lập**: git riêng, pyproject riêng, run độc lập. Root chỉ là container.
+Mỗi service **độc lập**: git riêng, pyproject riêng, run độc lập. Root là plain folder container, không có `.git`.
 
 ---
 
