@@ -1,1 +1,0 @@
-{"default":{"identifier":"default","description":"Default capabilities for Account Creator","local":true,"windows":["main"],"permissions":["core:default","opener:default","opener:allow-open-url","dialog:default","dialog:allow-save","dialog:allow-open","fs:default",{"identifier":"fs:allow-write-file","allow":[{"path":"**"}]}],"platforms":["linux","macOS","windows"]}}
