@@ -1,5 +1,5 @@
 browser:
-  headless: false
+  headless: true
   viewport_width: 1280
   viewport_height: 720
 timeouts:

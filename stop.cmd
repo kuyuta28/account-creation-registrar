@@ -1,8 +1,8 @@
 @echo off
 title Stopping Account Creator...
 
-echo [1/2] Killing process on port 8799 (API server)...
-for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":8799 " 2^>nul') do (
+echo [1/2] Killing process on port 8709 (API server)...
+for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":8709 " 2^>nul') do (
     taskkill /F /PID %%p >nul 2>&1
 )
 
