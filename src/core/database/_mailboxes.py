@@ -13,13 +13,27 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from ._engine import (
-    _Account, _MailboxServiceBlock, _get_engine, _now,
+    _Account, _AccountGmail, _MailboxServiceBlock, _get_engine, _now,
     _to_mailbox_dict,
 )
 from ._services import _ensure_service_exists
 
 
 # ── Mailbox CRUD ──────────────────────────────────────────────────────────────
+
+def _get_gmail_ext(s, row: _Account) -> "_AccountGmail | None":
+    return s.scalars(
+        select(_AccountGmail).where(_AccountGmail.account_id == row.id)
+    ).first()
+
+
+def _get_gmail_exts(s, rows: list[_Account]) -> dict[int, "_AccountGmail"]:
+    if not rows:
+        return {}
+    ids = [r.id for r in rows]
+    exts = s.scalars(select(_AccountGmail).where(_AccountGmail.account_id.in_(ids))).all()
+    return {ext.account_id: ext for ext in exts}
+
 
 def get_mailboxes(db_path: Path) -> list[dict[str, Any]]:
     """Trả tất cả Gmail mailboxes, sắp xếp theo email."""
@@ -29,7 +43,8 @@ def get_mailboxes(db_path: Path) -> list[dict[str, Any]]:
         rows = s.scalars(
             select(_Account).where(_Account.service == "GMAIL").order_by(_Account.email)
         ).all()
-    return [_to_mailbox_dict(r) for r in rows]
+        ext_map = _get_gmail_exts(s, rows)
+    return [_to_mailbox_dict(r, ext_map.get(r.id)) for r in rows]
 
 
 def get_mailbox_record(db_path: Path, email: str) -> dict[str, Any] | None:
@@ -38,7 +53,10 @@ def get_mailbox_record(db_path: Path, email: str) -> dict[str, Any] | None:
         row = s.scalars(
             select(_Account).where(_Account.service == "GMAIL", _Account.email == canonical)
         ).first()
-    return _to_mailbox_dict(row) if row else None
+        if row is None:
+            return None
+        ext = _get_gmail_ext(s, row)
+    return _to_mailbox_dict(row, ext)
 
 
 def upsert_mailbox_record(
@@ -54,45 +72,44 @@ def upsert_mailbox_record(
     """Insert hoặc update Gmail mailbox. Trả về dict mailbox sau khi lưu."""
     canonical = email.strip().lower()
     now = _now()
-    stmt = (
-        sqlite_insert(_Account)
-        .values(
-            service="GMAIL",
-            email=canonical,
-            app_password=app_password,
-            totp_secret=totp_secret,
-            password=password,
-            source_email=source_email,
-            label=label,
-            disabled=disabled,
-            created_at=now,
-            updated_at=now,
-            api_key="", credits=0, refresh_token="", access_token="",
-            account_id="", id_token="", expired="", last_refresh="",
-            token_type="", check_status="", quota_pct="", last_checked="",
-            last_error="", session_state="",
-        )
-        .on_conflict_do_update(
-            index_elements=["service", "email"],
-            set_={
-                "app_password": app_password,
-                "totp_secret":  totp_secret,
-                "password":     password,
-                "source_email": source_email,
-                "label":        label,
-                "disabled":     disabled,
-                "updated_at":   now,
-            },
-        )
-    )
     with Session(_get_engine(db_path)) as s:
         _ensure_service_exists(s, "GMAIL")
-        s.execute(stmt)
-        s.commit()
+        # Upsert base
+        s.execute(
+            sqlite_insert(_Account)
+            .values(
+                service="GMAIL", email=canonical,
+                password=password, source_email=source_email,
+                disabled=disabled, session_state="",
+                check_status="", last_checked="", last_error="",
+                created_at=now, updated_at=now,
+            )
+            .on_conflict_do_update(
+                index_elements=["service", "email"],
+                set_={
+                    "password":     password,
+                    "source_email": source_email,
+                    "disabled":     disabled,
+                    "updated_at":   now,
+                },
+            )
+        )
+        s.flush()
         row = s.scalars(
             select(_Account).where(_Account.service == "GMAIL", _Account.email == canonical)
         ).first()
-    return _to_mailbox_dict(row)  # type: ignore[arg-type]
+        # Upsert Gmail extension
+        s.execute(
+            sqlite_insert(_AccountGmail)
+            .values(account_id=row.id, totp_secret=totp_secret, app_password=app_password, label=label)
+            .on_conflict_do_update(
+                index_elements=["account_id"],
+                set_={"totp_secret": totp_secret, "app_password": app_password, "label": label},
+            )
+        )
+        s.commit()
+        ext = _get_gmail_ext(s, row)
+    return _to_mailbox_dict(row, ext)  # type: ignore[arg-type]
 
 
 def delete_mailbox_record(db_path: Path, email: str) -> bool:

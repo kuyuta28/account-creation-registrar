@@ -298,3 +298,21 @@ async def get_generation(gen_id: str, email: str):
     cookies = _build_cookies(account["session_state"])
     result = await _aa_get(f"/api/playground/generations/{gen_id}", cookies)
     return ok(result)
+
+
+# ── Re-login ──────────────────────────────────────────────────────────────────
+
+class ReloginBody(BaseModel):
+    email: str
+
+
+@router.post("/relogin")
+async def relogin_account(body: ReloginBody):
+    """Re-login tài khoản AA qua magic link — cập nhật session_state trong DB."""
+    from ...config.settings import load_config
+    from ...services.artificialanalysis_ai.registrar import relogin_artificialanalysis
+
+    cfg = load_config()
+    logs: list[str] = []
+    await relogin_artificialanalysis(body.email, cfg, logs.append)
+    return ok({"email": body.email, "logs": logs})

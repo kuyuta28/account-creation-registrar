@@ -1,8 +1,9 @@
 ﻿"""
-database/_accounts.py — Account CRUD operations.
+database/_accounts.py — Account CRUD operations (CTI).
 """
 from __future__ import annotations
 
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -10,35 +11,117 @@ from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from ._engine import _Account, _get_engine, _now, _to_dict, _record_to_values, _UPDATABLE
+from ._engine import (
+    _Account, _get_engine, _now, _to_dict,
+    _base_values, _ext_values,
+    _BASE_UPDATABLE, _EXT_UPDATABLE, _EXT_FIELD_ALIAS,
+    _EXTENSION_MODELS,
+)
 from ._services import _ensure_service_exists
 
 
+# ── Internal helpers ──────────────────────────────────────────────────────────
+
+def _upsert_extension(s: Session, account_id: int, service: str, ext: dict) -> None:
+    """Upsert extension row cho một account. Noop nếu service không có extension."""
+    model = _EXTENSION_MODELS.get(service)
+    if model is None or not ext:
+        return
+    s.execute(
+        sqlite_insert(model)
+        .values(account_id=account_id, **ext)
+        .on_conflict_do_update(index_elements=["account_id"], set_=ext)
+    )
+
+
+def _load_with_extensions(s: Session, rows: list[_Account]) -> list[dict[str, Any]]:
+    """Batch-load extension rows cho danh sách accounts, trả về flat dicts."""
+    if not rows:
+        return []
+    by_service: dict[str, list[_Account]] = defaultdict(list)
+    for r in rows:
+        by_service[r.service].append(r)
+
+    ext_by_id: dict[int, Any] = {}
+    for svc, svc_rows in by_service.items():
+        model = _EXTENSION_MODELS.get(svc)
+        if model is None:
+            continue
+        ids = [r.id for r in svc_rows]
+        for ext in s.scalars(select(model).where(model.account_id.in_(ids))).all():
+            ext_by_id[ext.account_id] = ext
+
+    return [_to_dict(r, ext_by_id.get(r.id)) for r in rows]
+
+
+def _resolve_ext_fields(service: str, fields: dict) -> tuple[dict, dict]:
+    """Tách fields thành (base_fields, ext_fields), translate alias (account_id → org_slug v.v.)."""
+    svc = service.upper()
+    ext_updatable = _EXT_UPDATABLE.get(svc, frozenset())
+    alias = _EXT_FIELD_ALIAS.get(svc, {})
+
+    base: dict = {}
+    ext: dict = {}
+    for k, v in fields.items():
+        if k in _BASE_UPDATABLE:
+            base[k] = v
+        elif k in ext_updatable:
+            actual_key = alias.get(k, k)
+            ext[actual_key] = v
+    return base, ext
+
+
+# ── Public CRUD ───────────────────────────────────────────────────────────────
+
 def insert_account(db_path: Path, record) -> bool:
     """INSERT — bỏ qua nếu trùng (service, email). Trả True nếu thực sự insert."""
-    values = _record_to_values(record)
-    stmt = sqlite_insert(_Account).values(**values).prefix_with("OR IGNORE")
+    base = _base_values(record)
+    ext  = _ext_values(record)
     with Session(_get_engine(db_path)) as s:
-        _ensure_service_exists(s, values["service"])
-        result = s.execute(stmt)
+        _ensure_service_exists(s, base["service"])
+        result = s.execute(
+            sqlite_insert(_Account).values(**base).prefix_with("OR IGNORE")
+        )
+        s.flush()
+        if result.rowcount == 0:
+            s.commit()
+            return False
+        row = s.scalars(
+            select(_Account).where(
+                _Account.service == base["service"],
+                _Account.email   == base["email"],
+            )
+        ).first()
+        if row and ext is not None:
+            _upsert_extension(s, row.id, row.service, ext)
         s.commit()
-        return result.rowcount > 0
+        return True
 
 
 def upsert_account(db_path: Path, record) -> None:
-    """INSERT — nếu trùng (service, email) thì UPDATE các field thay đổi."""
-    values = _record_to_values(record)
-    stmt = (
-        sqlite_insert(_Account)
-        .values(**values)
-        .on_conflict_do_update(
-            index_elements=["service", "email"],
-            set_={k: values[k] for k in _UPDATABLE if k in values},
-        )
-    )
+    """INSERT — nếu trùng (service, email) thì UPDATE base fields. Luôn upsert extension."""
+    base = _base_values(record)
+    ext  = _ext_values(record)
+    base_updatable = {k: base[k] for k in _BASE_UPDATABLE if k in base}
     with Session(_get_engine(db_path)) as s:
-        _ensure_service_exists(s, values["service"])
-        s.execute(stmt)
+        _ensure_service_exists(s, base["service"])
+        s.execute(
+            sqlite_insert(_Account)
+            .values(**base)
+            .on_conflict_do_update(
+                index_elements=["service", "email"],
+                set_=base_updatable,
+            )
+        )
+        s.flush()
+        row = s.scalars(
+            select(_Account).where(
+                _Account.service == base["service"],
+                _Account.email   == base["email"],
+            )
+        ).first()
+        if row and ext is not None:
+            _upsert_extension(s, row.id, row.service, ext)
         s.commit()
 
 
@@ -55,35 +138,49 @@ def get_accounts(
     stmt = stmt.order_by(_Account.id)
     with Session(_get_engine(db_path)) as s:
         rows = s.scalars(stmt).all()
-    return [_to_dict(r) for r in rows]
+        return _load_with_extensions(s, rows)
 
 
 def get_account_by_email(
     db_path: Path, service: str, email: str
 ) -> dict[str, Any] | None:
-    stmt = select(_Account).where(
-        _Account.service == service.upper(),
-        _Account.email == email,
-    )
     with Session(_get_engine(db_path)) as s:
-        row = s.scalars(stmt).first()
-    return _to_dict(row) if row else None
+        row = s.scalars(
+            select(_Account).where(
+                _Account.service == service.upper(),
+                _Account.email   == email,
+            )
+        ).first()
+        if row is None:
+            return None
+        results = _load_with_extensions(s, [row])
+        return results[0] if results else None
 
 
 def update_account(db_path: Path, service: str, email: str, **fields) -> bool:
-    safe = {k: v for k, v in fields.items() if k in _UPDATABLE}
-    if not safe:
+    base_fields, ext_fields = _resolve_ext_fields(service, fields)
+    if not base_fields and not ext_fields:
         return False
-    safe.setdefault("updated_at", _now())
-    stmt = (
-        update(_Account)
-        .where(_Account.service == service.upper(), _Account.email == email)
-        .values(**safe)
-    )
+    base_fields.setdefault("updated_at", _now())
+    svc = service.upper()
     with Session(_get_engine(db_path)) as s:
-        result = s.execute(stmt)
+        updated = False
+        if base_fields:
+            result = s.execute(
+                update(_Account)
+                .where(_Account.service == svc, _Account.email == email)
+                .values(**base_fields)
+            )
+            updated = result.rowcount > 0
+        if ext_fields:
+            row = s.scalars(
+                select(_Account).where(_Account.service == svc, _Account.email == email)
+            ).first()
+            if row:
+                _upsert_extension(s, row.id, svc, ext_fields)
+                updated = True
         s.commit()
-        return result.rowcount > 0
+    return updated
 
 
 def delete_account(db_path: Path, service: str, email: str) -> bool:
@@ -141,7 +238,7 @@ def get_used_gmail_variations(db_path: Path, source_email: str, service: str | N
         if service:
             stmt = stmt.where(_Account.service == service.upper())
         rows = s.scalars(stmt).all()
-    return [_to_dict(r) for r in rows]
+        return _load_with_extensions(s, rows)
 
 
 def check_gmail_variations_availability(
@@ -167,12 +264,21 @@ def bulk_insert(db_path: Path, records: list) -> int:
     inserted = 0
     with Session(_get_engine(db_path)) as s:
         for record in records:
+            base = _base_values(record)
+            ext  = _ext_values(record)
             result = s.execute(
-                sqlite_insert(_Account)
-                .values(**_record_to_values(record))
-                .prefix_with("OR IGNORE")
+                sqlite_insert(_Account).values(**base).prefix_with("OR IGNORE")
             )
-            inserted += result.rowcount
+            if result.rowcount > 0:
+                row = s.scalars(
+                    select(_Account).where(
+                        _Account.service == base["service"],
+                        _Account.email   == base["email"],
+                    )
+                ).first()
+                if row and ext is not None:
+                    _upsert_extension(s, row.id, row.service, ext)
+                inserted += 1
         s.commit()
     return inserted
 
@@ -180,21 +286,30 @@ def bulk_insert(db_path: Path, records: list) -> int:
 def update_accounts_bulk(
     db_path: Path, service: str, updates: list[dict[str, Any]]
 ) -> int:
+    svc = service.upper()
     total = 0
     with Session(_get_engine(db_path)) as s:
         for item in updates:
             email = item.get("email")
             if not email:
                 continue
-            safe = {k: v for k, v in item.items() if k in _UPDATABLE and k != "email"}
-            if not safe:
+            base_fields, ext_fields = _resolve_ext_fields(svc, {k: v for k, v in item.items() if k != "email"})
+            if not base_fields and not ext_fields:
                 continue
-            safe.setdefault("updated_at", _now())
-            result = s.execute(
-                update(_Account)
-                .where(_Account.service == service.upper(), _Account.email == email)
-                .values(**safe)
-            )
-            total += result.rowcount
+            base_fields.setdefault("updated_at", _now())
+            if base_fields:
+                result = s.execute(
+                    update(_Account)
+                    .where(_Account.service == svc, _Account.email == email)
+                    .values(**base_fields)
+                )
+                total += result.rowcount
+            if ext_fields:
+                row = s.scalars(
+                    select(_Account).where(_Account.service == svc, _Account.email == email)
+                ).first()
+                if row:
+                    _upsert_extension(s, row.id, svc, ext_fields)
+                    total += 1
         s.commit()
     return total

@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session
 from ._engine import (
     _Account, _Base, _MailProvider, _Service,
     _get_engine, _now,
+    _AccountGmail, _AccountAA, _AccountOpenRouter, _AccountTwoSlides,
+    _AccountElevenLabs, _AccountTestmail, _AccountMailosaur,
 )
 
 
@@ -282,6 +284,173 @@ def _seed_default_providers(engine) -> None:
         s.commit()
 
 
+def _migrate_to_cti(engine) -> None:
+    """
+    Migrate fat accounts table → CTI (Concrete Table Inheritance).
+    Idempotent: kiểm tra cột api_key còn trong accounts không.
+
+    Dùng sqlite3 trực tiếp (KHÔNG qua SQLAlchemy) để tránh implicit
+    commit của DDL khiến DML bị tách transaction.
+    """
+    import sqlite3
+
+    db_url = str(engine.url)
+    # sqlite:////abs/path  hoặc  sqlite:///relative/path
+    db_path = db_url.replace("sqlite:///", "", 1)
+
+    raw = sqlite3.connect(db_path, isolation_level=None)  # autocommit mode
+    try:
+        cur = raw.cursor()
+
+        fat_cols = {row[1] for row in cur.execute("PRAGMA table_info(accounts)")}
+        if "api_key" not in fat_cols and "totp_secret" not in fat_cols:
+            return  # đã migrate rồi
+
+        cur.execute("PRAGMA foreign_keys=OFF")
+        cur.execute("BEGIN EXCLUSIVE")
+
+        # ── 1. Đảm bảo extension tables tồn tại ─────────────────────────────
+        cur.executescript("""
+            CREATE TABLE IF NOT EXISTS accounts_gmail (
+                account_id   INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+                totp_secret  TEXT NOT NULL DEFAULT '',
+                app_password TEXT NOT NULL DEFAULT '',
+                label        TEXT NOT NULL DEFAULT ''
+            );
+            CREATE TABLE IF NOT EXISTS accounts_artificialanalysis (
+                account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+                api_key    TEXT NOT NULL DEFAULT '',
+                org_slug   TEXT NOT NULL DEFAULT ''
+            );
+            CREATE TABLE IF NOT EXISTS accounts_openrouter (
+                account_id    INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+                api_key       TEXT NOT NULL DEFAULT '',
+                credits       INTEGER NOT NULL DEFAULT 0,
+                quota_pct     TEXT NOT NULL DEFAULT '',
+                refresh_token TEXT NOT NULL DEFAULT '',
+                access_token  TEXT NOT NULL DEFAULT '',
+                id_token      TEXT NOT NULL DEFAULT '',
+                token_type    TEXT NOT NULL DEFAULT '',
+                expired       TEXT NOT NULL DEFAULT '',
+                last_refresh  TEXT NOT NULL DEFAULT ''
+            );
+            CREATE TABLE IF NOT EXISTS accounts_twoslides (
+                account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+                api_key    TEXT NOT NULL DEFAULT '',
+                credits    INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS accounts_elevenlabs (
+                account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+                api_key    TEXT NOT NULL DEFAULT ''
+            );
+            CREATE TABLE IF NOT EXISTS accounts_testmail (
+                account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+                api_key    TEXT NOT NULL DEFAULT ''
+            );
+            CREATE TABLE IF NOT EXISTS accounts_mailosaur (
+                account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+                api_key    TEXT NOT NULL DEFAULT '',
+                server_id  TEXT NOT NULL DEFAULT ''
+            );
+        """)
+        # executescript commits — start a new explicit transaction for DML
+        cur.execute("BEGIN EXCLUSIVE")
+
+        # ── 2. Copy dữ liệu từ fat columns sang extension tables ─────────────
+        if "totp_secret" in fat_cols:
+            cur.execute("""
+                INSERT OR IGNORE INTO accounts_gmail (account_id, totp_secret, app_password, label)
+                SELECT id,
+                    COALESCE(totp_secret, ''),
+                    COALESCE(app_password, ''),
+                    COALESCE(label, '')
+                FROM accounts WHERE service = 'GMAIL'
+            """)
+
+        if "api_key" in fat_cols:
+            cur.execute("""
+                INSERT OR IGNORE INTO accounts_artificialanalysis (account_id, api_key, org_slug)
+                SELECT id, COALESCE(api_key, ''), COALESCE(account_id, '')
+                FROM accounts WHERE service = 'ARTIFICIALANALYSIS'
+            """)
+            cur.execute("""
+                INSERT OR IGNORE INTO accounts_openrouter
+                    (account_id, api_key, credits, quota_pct,
+                     refresh_token, access_token, id_token, token_type, expired, last_refresh)
+                SELECT id,
+                    COALESCE(api_key, ''), COALESCE(credits, 0), COALESCE(quota_pct, ''),
+                    COALESCE(refresh_token, ''), COALESCE(access_token, ''), COALESCE(id_token, ''),
+                    COALESCE(token_type, ''), COALESCE(expired, ''), COALESCE(last_refresh, '')
+                FROM accounts WHERE service = 'OPENROUTER'
+            """)
+            cur.execute("""
+                INSERT OR IGNORE INTO accounts_twoslides (account_id, api_key, credits)
+                SELECT id, COALESCE(api_key, ''), COALESCE(credits, 0)
+                FROM accounts WHERE service = '2SLIDES'
+            """)
+            cur.execute("""
+                INSERT OR IGNORE INTO accounts_elevenlabs (account_id, api_key)
+                SELECT id, COALESCE(api_key, '')
+                FROM accounts WHERE service = 'ELEVENLABS'
+            """)
+            cur.execute("""
+                INSERT OR IGNORE INTO accounts_testmail (account_id, api_key)
+                SELECT id, COALESCE(api_key, '')
+                FROM accounts WHERE service = 'TESTMAIL'
+            """)
+            cur.execute("""
+                INSERT OR IGNORE INTO accounts_mailosaur (account_id, api_key, server_id)
+                SELECT id, COALESCE(api_key, ''), COALESCE(account_id, '')
+                FROM accounts WHERE service = 'MAILOSAUR'
+            """)
+
+        cur.execute("COMMIT")
+
+        # ── 3. Recreate accounts với slim schema (giữ nguyên id) ─────────────
+        cur.executescript("""
+            CREATE TABLE accounts_slim (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                service       TEXT    NOT NULL,
+                email         TEXT    NOT NULL,
+                password      TEXT    NOT NULL DEFAULT '',
+                disabled      BOOLEAN NOT NULL DEFAULT 0,
+                session_state TEXT    NOT NULL DEFAULT '',
+                source_email  TEXT    NOT NULL DEFAULT '',
+                check_status  TEXT    NOT NULL DEFAULT '',
+                last_checked  TEXT    NOT NULL DEFAULT '',
+                last_error    TEXT    NOT NULL DEFAULT '',
+                created_at    TEXT    NOT NULL,
+                updated_at    TEXT    NOT NULL,
+                UNIQUE(service, email)
+            );
+            INSERT INTO accounts_slim
+                (id, service, email, password, disabled, session_state, source_email,
+                 check_status, last_checked, last_error, created_at, updated_at)
+            SELECT
+                id, service, email,
+                COALESCE(password, ''),
+                COALESCE(disabled, 0),
+                COALESCE(session_state, ''),
+                COALESCE(source_email, ''),
+                COALESCE(check_status, ''),
+                COALESCE(last_checked, ''),
+                COALESCE(last_error, ''),
+                created_at, updated_at
+            FROM accounts;
+            DROP TABLE accounts;
+            ALTER TABLE accounts_slim RENAME TO accounts;
+            CREATE INDEX IF NOT EXISTS idx_accounts_service ON accounts(service);
+            CREATE INDEX IF NOT EXISTS idx_accounts_service_disabled ON accounts(service, disabled);
+        """)
+
+        cur.execute("PRAGMA foreign_keys=ON")
+    except Exception:
+        raw.rollback()
+        raise
+    finally:
+        raw.close()
+
+
 def init_db(db_path: Path) -> None:
     """Tạo bảng + index nếu chưa có (idempotent). Chạy migrations theo thứ tự."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -291,5 +460,6 @@ def init_db(db_path: Path) -> None:
     _migrate_provider_domain(engine)
     _migrate_mail_provider_schema(engine)
     _migrate_mailboxes_to_accounts(engine)
+    _migrate_to_cti(engine)
     _seed_services_catalog(engine)
     _seed_default_providers(engine)

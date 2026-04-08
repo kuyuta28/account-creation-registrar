@@ -13,7 +13,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from ._engine import (
-    _Account, _MailProvider, _MailboxServiceBlock, _ProviderDomainTag, _get_engine, _now,
+    _Account, _AccountGmail, _MailProvider, _MailboxServiceBlock, _ProviderDomainTag, _get_engine, _now,
     _to_provider_dict,
 )
 
@@ -115,6 +115,16 @@ def get_mail_providers(
                     _Account.email.not_in(blocked_emails)
                 )
             gmail_rows = s.scalars(stmt_gmail).all()
+            if gmail_rows:
+                g_ids = [r.id for r in gmail_rows]
+                gmail_exts = {
+                    ext.account_id: ext
+                    for ext in s.scalars(
+                        select(_AccountGmail).where(_AccountGmail.account_id.in_(g_ids))
+                    ).all()
+                }
+            else:
+                gmail_exts = {}
             result.extend({
                 "id":             None,
                 "provider_type":  "gmail.com",
@@ -124,7 +134,11 @@ def get_mail_providers(
                     email=row.email,
                     meta=base64.urlsafe_b64encode(
                         _json.dumps(
-                            {"s": row.session_state, "p": row.password, "t": row.totp_secret},
+                            {
+                                "s": row.session_state,
+                                "p": row.password,
+                                "t": gmail_exts[row.id].totp_secret if row.id in gmail_exts else "",
+                            },
                             separators=(",", ":"),
                         ).encode()
                     ).decode(),

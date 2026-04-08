@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import (
-    Boolean, Engine, Index, Integer, String, Text, UniqueConstraint,
+    Boolean, Engine, ForeignKey, Index, Integer, String, Text, UniqueConstraint,
     create_engine, event,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -31,32 +31,120 @@ class _Account(_Base):
     email:         Mapped[str]  = mapped_column(String(256), nullable=False)
     password:      Mapped[str]  = mapped_column(Text, default="")
     disabled:      Mapped[bool] = mapped_column(Boolean, default=False)
-    api_key:       Mapped[str]  = mapped_column(Text, default="")
-    credits:       Mapped[int]  = mapped_column(Integer, default=0)
-    refresh_token: Mapped[str]  = mapped_column(Text, default="")
-    access_token:  Mapped[str]  = mapped_column(Text, default="")
-    account_id:    Mapped[str]  = mapped_column(String(256), default="")
-    id_token:      Mapped[str]  = mapped_column(Text, default="")
-    expired:       Mapped[str]  = mapped_column(String(64), default="")
-    last_refresh:  Mapped[str]  = mapped_column(String(64), default="")
-    token_type:    Mapped[str]  = mapped_column(String(32), default="")
-    created_at:    Mapped[str]  = mapped_column(String(64), nullable=False)
-    updated_at:    Mapped[str]  = mapped_column(String(64), nullable=False)
+    session_state: Mapped[str]  = mapped_column(Text, default="")
+    source_email:  Mapped[str]  = mapped_column(Text, default="")
     check_status:  Mapped[str]  = mapped_column(String(32), default="")
-    quota_pct:     Mapped[str]  = mapped_column(String(16), default="")
     last_checked:  Mapped[str]  = mapped_column(String(64), default="")
     last_error:    Mapped[str]  = mapped_column(Text, default="")
-    session_state: Mapped[str]  = mapped_column(Text, default="")
-    totp_secret:   Mapped[str]  = mapped_column(Text, default="")
-    app_password:  Mapped[str]  = mapped_column(Text, default="")
-    source_email:  Mapped[str]  = mapped_column(Text, default="")
-    label:         Mapped[str]  = mapped_column(Text, default="")
+    created_at:    Mapped[str]  = mapped_column(String(64), nullable=False)
+    updated_at:    Mapped[str]  = mapped_column(String(64), nullable=False)
 
     __table_args__ = (
         UniqueConstraint("service", "email", name="uq_service_email"),
         Index("idx_accounts_service", "service"),
         Index("idx_accounts_service_disabled", "service", "disabled"),
     )
+
+
+# ── Extension tables (CTI) ─────────────────────────────────────────────────────
+
+class _AccountGmail(_Base):
+    __tablename__ = "accounts_gmail"
+    account_id:   Mapped[int] = mapped_column(Integer, ForeignKey("accounts.id", ondelete="CASCADE"), primary_key=True)
+    totp_secret:  Mapped[str] = mapped_column(Text, default="")
+    app_password: Mapped[str] = mapped_column(Text, default="")
+    label:        Mapped[str] = mapped_column(Text, default="")
+
+
+class _AccountAA(_Base):
+    __tablename__ = "accounts_artificialanalysis"
+    account_id: Mapped[int] = mapped_column(Integer, ForeignKey("accounts.id", ondelete="CASCADE"), primary_key=True)
+    api_key:    Mapped[str] = mapped_column(Text, default="")
+    org_slug:   Mapped[str] = mapped_column(Text, default="")
+
+
+class _AccountOpenRouter(_Base):
+    __tablename__ = "accounts_openrouter"
+    account_id:    Mapped[int] = mapped_column(Integer, ForeignKey("accounts.id", ondelete="CASCADE"), primary_key=True)
+    api_key:       Mapped[str] = mapped_column(Text, default="")
+    credits:       Mapped[int] = mapped_column(Integer, default=0)
+    quota_pct:     Mapped[str] = mapped_column(String(16), default="")
+    refresh_token: Mapped[str] = mapped_column(Text, default="")
+    access_token:  Mapped[str] = mapped_column(Text, default="")
+    id_token:      Mapped[str] = mapped_column(Text, default="")
+    token_type:    Mapped[str] = mapped_column(String(32), default="")
+    expired:       Mapped[str] = mapped_column(String(64), default="")
+    last_refresh:  Mapped[str] = mapped_column(String(64), default="")
+
+
+class _AccountTwoSlides(_Base):
+    __tablename__ = "accounts_twoslides"
+    account_id: Mapped[int] = mapped_column(Integer, ForeignKey("accounts.id", ondelete="CASCADE"), primary_key=True)
+    api_key:    Mapped[str] = mapped_column(Text, default="")
+    credits:    Mapped[int] = mapped_column(Integer, default=0)
+
+
+class _AccountElevenLabs(_Base):
+    __tablename__ = "accounts_elevenlabs"
+    account_id: Mapped[int] = mapped_column(Integer, ForeignKey("accounts.id", ondelete="CASCADE"), primary_key=True)
+    api_key:    Mapped[str] = mapped_column(Text, default="")
+
+
+class _AccountTestmail(_Base):
+    __tablename__ = "accounts_testmail"
+    account_id: Mapped[int] = mapped_column(Integer, ForeignKey("accounts.id", ondelete="CASCADE"), primary_key=True)
+    api_key:    Mapped[str] = mapped_column(Text, default="")
+
+
+class _AccountMailosaur(_Base):
+    __tablename__ = "accounts_mailosaur"
+    account_id: Mapped[int] = mapped_column(Integer, ForeignKey("accounts.id", ondelete="CASCADE"), primary_key=True)
+    api_key:    Mapped[str] = mapped_column(Text, default="")
+    server_id:  Mapped[str] = mapped_column(Text, default="")
+
+
+# ── CTI registry ───────────────────────────────────────────────────────────────
+
+_EXTENSION_MODELS: dict[str, type] = {
+    "GMAIL":              _AccountGmail,
+    "ARTIFICIALANALYSIS": _AccountAA,
+    "OPENROUTER":         _AccountOpenRouter,
+    "2SLIDES":            _AccountTwoSlides,
+    "ELEVENLABS":         _AccountElevenLabs,
+    "TESTMAIL":           _AccountTestmail,
+    "MAILOSAUR":          _AccountMailosaur,
+}
+
+# Fields that live in the base accounts table
+_BASE_UPDATABLE = frozenset({
+    "password", "disabled", "session_state", "source_email",
+    "check_status", "last_checked", "last_error", "updated_at",
+})
+
+# Fields that live in each extension table (includes backward-compat aliases)
+_EXT_UPDATABLE: dict[str, frozenset[str]] = {
+    "GMAIL":              frozenset({"totp_secret", "app_password", "label"}),
+    "ARTIFICIALANALYSIS": frozenset({"api_key", "org_slug", "account_id"}),
+    "OPENROUTER":         frozenset({"api_key", "credits", "quota_pct", "refresh_token",
+                                     "access_token", "id_token", "token_type", "expired", "last_refresh"}),
+    "2SLIDES":            frozenset({"api_key", "credits"}),
+    "ELEVENLABS":         frozenset({"api_key"}),
+    "TESTMAIL":           frozenset({"api_key"}),
+    "MAILOSAUR":          frozenset({"api_key", "server_id", "account_id"}),
+}
+
+# Old flat field name → actual extension column name (backward compat)
+_EXT_FIELD_ALIAS: dict[str, dict[str, str]] = {
+    "ARTIFICIALANALYSIS": {"account_id": "org_slug"},
+    "MAILOSAUR":          {"account_id": "server_id"},
+}
+
+# Legacy combined set — kept so old callers importing _UPDATABLE don't break
+_UPDATABLE: frozenset[str] = _BASE_UPDATABLE | frozenset({
+    "api_key", "credits", "quota_pct", "refresh_token", "access_token",
+    "id_token", "token_type", "expired", "last_refresh", "account_id",
+    "totp_secret", "app_password", "label",
+})
 
 
 class _MailProvider(_Base):
@@ -160,46 +248,77 @@ def _parse_quota_pct(raw: str) -> int | None:
         return None
 
 
-def _to_dict(row: _Account) -> dict[str, Any]:
-    return {
+def _to_dict(row: _Account, ext=None) -> dict[str, Any]:
+    d: dict[str, Any] = {
         "id":            row.id,
         "service":       row.service,
         "email":         row.email,
         "password":      row.password,
         "disabled":      row.disabled,
         "status":        _compute_status(row.disabled, row.check_status),
-        "api_key":       row.api_key,
-        "credits":       row.credits,
-        "refresh_token": row.refresh_token,
-        "access_token":  row.access_token,
-        "account_id":    row.account_id,
-        "id_token":      row.id_token,
-        "expired":       row.expired,
-        "last_refresh":  row.last_refresh,
-        "token_type":    row.token_type,
-        "created_at":    row.created_at,
-        "updated_at":    row.updated_at,
+        "session_state": row.session_state,
+        "source_email":  row.source_email,
         "check_status":  row.check_status,
-        "quota_pct":     _parse_quota_pct(row.quota_pct),
         "last_checked":  row.last_checked,
         "last_error":    row.last_error,
-        "session_state": row.session_state,
-        "totp_secret":   row.totp_secret,
-        "app_password":  row.app_password,
-        "source_email":  row.source_email,
+        "created_at":    row.created_at,
+        "updated_at":    row.updated_at,
+        # backward-compat defaults (populated from extension if present)
+        "api_key":       "",
+        "credits":       0,
+        "quota_pct":     None,
+        "refresh_token": "",
+        "access_token":  "",
+        "id_token":      "",
+        "token_type":    "",
+        "expired":       "",
+        "last_refresh":  "",
+        "account_id":    "",
+        "totp_secret":   "",
+        "app_password":  "",
+        "label":         "",
     }
+    if ext is None:
+        return d
+    svc = row.service
+    if svc == "GMAIL":
+        d["totp_secret"]  = ext.totp_secret
+        d["app_password"] = ext.app_password
+        d["label"]        = ext.label
+    elif svc == "ARTIFICIALANALYSIS":
+        d["api_key"]    = ext.api_key
+        d["account_id"] = ext.org_slug
+    elif svc == "OPENROUTER":
+        d["api_key"]       = ext.api_key
+        d["credits"]       = ext.credits
+        d["quota_pct"]     = _parse_quota_pct(ext.quota_pct)
+        d["refresh_token"] = ext.refresh_token
+        d["access_token"]  = ext.access_token
+        d["id_token"]      = ext.id_token
+        d["token_type"]    = ext.token_type
+        d["expired"]       = ext.expired
+        d["last_refresh"]  = ext.last_refresh
+    elif svc == "2SLIDES":
+        d["api_key"] = ext.api_key
+        d["credits"] = ext.credits
+    elif svc in ("ELEVENLABS", "TESTMAIL"):
+        d["api_key"] = ext.api_key
+    elif svc == "MAILOSAUR":
+        d["api_key"]    = ext.api_key
+        d["account_id"] = ext.server_id
+    return d
 
 
-def _to_mailbox_dict(row: _Account) -> dict[str, Any]:
+def _to_mailbox_dict(row: _Account, ext: "_AccountGmail | None" = None) -> dict[str, Any]:
     return {
         "email":             row.email,
-        "app_password":      row.app_password,
-        "totp_secret":       row.totp_secret,
+        "app_password":      ext.app_password if ext else "",
+        "totp_secret":       ext.totp_secret  if ext else "",
         "password":          row.password,
         "source_email":      row.source_email,
         "google_auth_state": row.session_state,
         "disabled":          row.disabled,
-        "label":             row.label,
+        "label":             ext.label if ext else "",
         "created_at":        row.created_at,
         "updated_at":        row.updated_at,
     }
@@ -252,22 +371,65 @@ _UPDATABLE = frozenset({
 })
 
 
-def _record_to_values(record) -> dict:
+def _base_values(record) -> dict:
+    """Trả về dict fields cho bảng accounts (base)."""
     return {
-        "service":      record.service.upper(),
-        "email":        record.email,
-        "password":     record.password,
-        "disabled":     record.disabled,
-        "api_key":      record.api_key,
-        "credits":      record.credits,
-        "refresh_token": record.refresh_token,
-        "access_token": record.access_token,
-        "account_id":   record.account_id,
-        "id_token":     record.id_token,
-        "expired":      record.expired,
-        "last_refresh": record.last_refresh,
-        "token_type":   record.token_type,
-        "created_at":   record.created_at,
-        "updated_at":   record.updated_at,
-        "source_email": getattr(record, "source_email", ""),
+        "service":       record.service.upper(),
+        "email":         record.email,
+        "password":      getattr(record, "password", ""),
+        "disabled":      getattr(record, "disabled", False),
+        "session_state": getattr(record, "session_state", ""),
+        "source_email":  getattr(record, "source_email", ""),
+        "created_at":    record.created_at,
+        "updated_at":    record.updated_at,
     }
+
+
+def _ext_values(record) -> dict | None:
+    """Trả về dict fields cho extension table tương ứng, hoặc None nếu không có."""
+    svc = record.service.upper()
+    match svc:
+        case "GMAIL":
+            return {
+                "totp_secret":  getattr(record, "totp_secret", ""),
+                "app_password": getattr(record, "app_password", ""),
+                "label":        getattr(record, "label", ""),
+            }
+        case "ARTIFICIALANALYSIS":
+            return {
+                "api_key":  getattr(record, "api_key", ""),
+                "org_slug": getattr(record, "account_id", ""),
+            }
+        case "OPENROUTER":
+            return {
+                "api_key":       getattr(record, "api_key", ""),
+                "credits":       getattr(record, "credits", 0),
+                "quota_pct":     getattr(record, "quota_pct", ""),
+                "refresh_token": getattr(record, "refresh_token", ""),
+                "access_token":  getattr(record, "access_token", ""),
+                "id_token":      getattr(record, "id_token", ""),
+                "token_type":    getattr(record, "token_type", ""),
+                "expired":       getattr(record, "expired", ""),
+                "last_refresh":  getattr(record, "last_refresh", ""),
+            }
+        case "2SLIDES":
+            return {
+                "api_key": getattr(record, "api_key", ""),
+                "credits": getattr(record, "credits", 0),
+            }
+        case "ELEVENLABS":
+            return {"api_key": getattr(record, "api_key", "")}
+        case "TESTMAIL":
+            return {"api_key": getattr(record, "api_key", "")}
+        case "MAILOSAUR":
+            return {
+                "api_key":  getattr(record, "api_key", ""),
+                "server_id": getattr(record, "account_id", ""),
+            }
+        case _:
+            return None
+
+
+# Deprecated — kept for backward compat with any direct callers
+def _record_to_values(record) -> dict:
+    return _base_values(record)
