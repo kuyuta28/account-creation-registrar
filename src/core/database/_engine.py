@@ -5,8 +5,10 @@ Internal module — callers use database/__init__.py public API.
 """
 from __future__ import annotations
 
+import time
 from datetime import datetime, UTC
 from pathlib import Path
+from sqlite3 import OperationalError as SqliteOperationalError
 from typing import Any
 
 from sqlalchemy import (
@@ -227,10 +229,23 @@ def _get_engine(db_path: Path) -> Engine:
         @event.listens_for(engine, "connect")
         def _set_pragmas(dbapi_conn, _record):
             dbapi_conn.execute("PRAGMA journal_mode=WAL")
+            dbapi_conn.execute("PRAGMA busy_timeout=5000")
+            dbapi_conn.execute("PRAGMA synchronous=NORMAL")
             dbapi_conn.execute("PRAGMA foreign_keys=ON")
 
         _engines[key] = engine
     return _engines[key]
+
+
+def _retry_db_op(fn, *, max_retries=3, base_delay=0.1):
+    """Retry DB operation on 'database is locked' errors."""
+    for attempt in range(max_retries):
+        try:
+            return fn()
+        except SqliteOperationalError as e:
+            if "locked" not in str(e).lower() or attempt == max_retries - 1:
+                raise
+            time.sleep(base_delay * (2 ** attempt))
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

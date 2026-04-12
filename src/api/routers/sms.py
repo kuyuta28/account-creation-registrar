@@ -18,8 +18,8 @@ from pydantic import BaseModel
 
 from ..schemas import ok
 from ...config.settings import load_config
-from ...core.database import delete_sms_phone, get_sms_phones, upsert_sms_phone
-from ...core.storage import db_path
+from common.database import delete_sms_phone, get_sms_phones, upsert_sms_phone
+from src.core.storage import db_path
 from ...mail.providers.sms_webhook import get_messages, make_mailbox, push_sms
 
 router = APIRouter(prefix="/sms", tags=["sms"])

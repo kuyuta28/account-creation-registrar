@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "common" / "src"))
 
 # Thêm zc-zhangchen/any-auto-register vào sys.path để dùng trực tiếp
 _zc_path = Path(__file__).parent / "any-auto-register"

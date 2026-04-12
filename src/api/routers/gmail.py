@@ -18,7 +18,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from ...config.settings import load_config
-from ...core.database import (
+from common.database import (
     block_mailbox_for_service,
     check_gmail_variations_availability,
     delete_mailbox_record,
@@ -30,12 +30,12 @@ from ...core.database import (
     unblock_mailbox_for_service,
     upsert_mailbox_record,
 )
-from ...core.gmail_variations import (
+from src.core.gmail_variations import (
     GmailVariation,
     generate_variations,
     normalize_gmail,
 )
-from ...core.storage import db_path
+from src.core.storage import db_path
 from ..exceptions import AppError
 from ..schemas import ErrorCode, ok
 from ..services.account_service import has_service
@@ -138,7 +138,7 @@ async def list_available_mailboxes(service: str):
 async def upsert_mailbox(body: UpsertMailboxBody):
     """Th�m ho?c c?p nh?t m?t Gmail mailbox."""
 
-    from ...core.gmail_variations import _parse_gmail
+    from src.core.gmail_variations import _parse_gmail
 
     if not _parse_gmail(body.email):
         raise AppError(ErrorCode.VALIDATION, f"Kh�ng ph?i Gmail h?p l?: {body.email!r}", 400)
@@ -431,7 +431,7 @@ async def get_variations(body: GenerateVariationsBody):
     cho service d� ch? d?nh.
     """
 
-    from ...core.gmail_variations import _parse_gmail
+    from src.core.gmail_variations import _parse_gmail
 
     if not _parse_gmail(body.base_email):
         raise AppError(ErrorCode.VALIDATION, f"Kh�ng ph?i Gmail h?p l?: {body.base_email!r}", 400)
@@ -482,7 +482,7 @@ async def get_used(base_email: str, service: str | None = None):
     L?y danh s�ch accounts d� d�ng variations c?a base_email (k? c? ch�nh email d�).
     """
 
-    from ...core.gmail_variations import _parse_gmail
+    from src.core.gmail_variations import _parse_gmail
 
     if not _parse_gmail(base_email):
         raise AppError(ErrorCode.VALIDATION, f"Kh�ng ph?i Gmail h?p l?: {base_email!r}", 400)

@@ -11,7 +11,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from ...config.settings import load_config
-from ...core.database import (
+from common.database import (
     get_all_providers_with_tags,
     get_provider_domains,
     set_provider_domain_tags,

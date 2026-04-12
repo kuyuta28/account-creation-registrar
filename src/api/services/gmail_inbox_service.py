@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import re
 
-from ...core.database import get_mailbox_record
+from common.database import get_mailbox_record
 from ...mail.providers.gmail import (
     GmailMessage,
     get_message_body,

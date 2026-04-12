@@ -21,9 +21,9 @@ from pathlib import Path
 from playwright.async_api import Page
 
 from ...config.settings import AppConfig
-from ...core.browser import open_browser
-from ...core.page_utils import dump_debug_html as _dump_debug
-from ...core.storage import AccountRecord
+from common.browser import open_browser
+from common.page_utils import dump_debug_html as _dump_debug
+from src.core.storage import AccountRecord
 from ...mail.client import Mailbox, create_mailbox, wait_for_message
 from ..protocols import LogFn, SaveFn
 from .api_key import create_api_key, get_credits_via_page

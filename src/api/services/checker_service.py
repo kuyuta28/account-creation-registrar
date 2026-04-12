@@ -16,9 +16,9 @@ from typing import Any
 
 from ...checkers.base import AccountCheckerProtocol
 from ...config.settings import load_config
-from ...core.database import get_account_by_email, get_accounts, update_account
-from ...core.storage import db_path
-from ...core.enums import CheckStatus
+from common.database import get_account_by_email, get_accounts, update_account
+from src.core.storage import db_path
+from common.enums import CheckStatus
 
 _log = logging.getLogger(__name__)
 
@@ -443,7 +443,7 @@ async def _test_or_key(api_key: str, semaphore: asyncio.Semaphore) -> bool:
 
 async def _run_check_and_clean_or(accounts: list[dict[str, Any]]) -> None:
     import yaml
-    from ...core.database import delete_account as _del_acc
+    from common.database import delete_account as _del_acc
 
     cfg = load_config()
     db = _db_path()
@@ -529,7 +529,7 @@ _ZDR_KEYWORDS   = ("zdr", "zero data retention")
 
 
 async def _fix_privacy_one(page: Any, email: str, password: str, debug_dir: Path) -> dict:
-    from ...core.page_utils import dump_debug_html as _dump
+    from common.page_utils import dump_debug_html as _dump
 
     # Login
     await page.goto(_OR_SIGN_IN_URL, timeout=60_000, wait_until="domcontentloaded")
@@ -581,7 +581,7 @@ async def _fix_privacy_one(page: Any, email: str, password: str, debug_dir: Path
 
 
 async def _run_fix_or_privacy(accounts: list[dict[str, Any]]) -> None:
-    from ...core.browser import open_browser
+    from common.browser import open_browser
 
     cfg = load_config()
     sem = asyncio.Semaphore(3)
@@ -641,8 +641,8 @@ async def get_fix_or_privacy_status() -> dict[str, Any]:
 async def refresh_kling_session(email: str) -> dict[str, Any]:
     """Load session_state của account KLING, visit app.klingai.com để refresh cookies, lưu lại."""
     import json
-    from ...core.database import get_account_by_email, update_account
-    from ...core.browser import open_browser
+    from common.database import get_account_by_email, update_account
+    from common.browser import open_browser
 
     cfg = load_config()
     db = _db_path()

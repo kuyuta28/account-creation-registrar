@@ -8,7 +8,7 @@ from __future__ import annotations
 from playwright.async_api import Page
 
 from ...config.settings import AppConfig
-from ...core.page_utils import dump_debug_html as _dump_debug
+from common.page_utils import dump_debug_html as _dump_debug
 from ..protocols import LogFn
 
 

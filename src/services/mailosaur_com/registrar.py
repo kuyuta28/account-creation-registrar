@@ -28,10 +28,10 @@ import string
 from playwright.async_api import Page
 
 from ...config.settings import AppConfig
-from ...core.browser import open_browser
-from ...core.database import upsert_mail_provider
-from ...core.page_utils import dump_debug_html as _dump_debug
-from ...core.storage import AccountRecord
+from common.browser import open_browser
+from common.database import upsert_mail_provider
+from common.page_utils import dump_debug_html as _dump_debug
+from src.core.storage import AccountRecord
 from ...mail.client import Mailbox, create_mailbox, wait_for_message
 from ..protocols import LogFn, SaveFn
 

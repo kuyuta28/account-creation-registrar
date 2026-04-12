@@ -21,9 +21,9 @@ from pathlib import Path
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from ...config.settings import AppConfig
-from ...core.browser import open_browser
-from ...core.session import save_session as _save_session
-from ...core.totp import generate_totp
+from common.browser import open_browser
+from common.session import save_session as _save_session
+from common.totp import generate_totp
 from ..protocols import LogFn
 
 

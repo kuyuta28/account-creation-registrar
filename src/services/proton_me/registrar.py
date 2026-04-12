@@ -9,9 +9,9 @@ import asyncio
 import logging
 
 from ...config.settings import AppConfig
-from ...core.browser import open_browser
-from ...core.password import generate_password, generate_username
-from ...core.storage import AccountRecord
+from common.browser import open_browser
+from common.password import generate_password, generate_username
+from src.core.storage import AccountRecord
 from ..protocols import LogFn, SaveFn
 
 _LOG = logging.getLogger(__name__)

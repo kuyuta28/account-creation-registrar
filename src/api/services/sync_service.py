@@ -14,8 +14,8 @@ from typing import Any
 import httpx
 
 from ...config.settings import load_config
-from ...core.database import get_accounts
-from ...core.storage import db_path
+from common.database import get_accounts
+from src.core.storage import db_path
 
 _log = logging.getLogger(__name__)
 

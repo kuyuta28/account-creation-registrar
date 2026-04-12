@@ -12,10 +12,10 @@ import json
 import logging
 
 from ...config.settings import AppConfig
-from ...core.browser import open_browser
-from ...core.database import get_mailbox_google_auth_state, save_mailbox_google_auth_state
-from ...core.google_oauth import dump_page_html, handle_oauth_popup
-from ...core.storage import AccountRecord, db_path
+from common.browser import open_browser
+from common.database import get_mailbox_google_auth_state, save_mailbox_google_auth_state
+from src.core.google_oauth import dump_page_html, handle_oauth_popup
+from src.core.storage import AccountRecord, db_path
 from ...mail.client import Mailbox, create_mailbox
 from ..errors import FatalRegistrationError, NoMailboxAvailableError, NoSessionError, RetryableRegistrationError
 from ..protocols import LogFn, SaveFn

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ...core.session import (
+from common.session import (
     load_session as _load_session,
     save_session as _save_session,
 )

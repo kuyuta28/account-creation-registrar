@@ -9,7 +9,7 @@ from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError
 
 from ...config.settings import AppConfig
 from ..protocols import LogFn
-from ...core.page_utils import safe_load, dump_debug_html as _dump_debug
+from common.page_utils import safe_load, dump_debug_html as _dump_debug
 from .onboarding import handle_onboarding
 
 

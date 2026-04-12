@@ -20,9 +20,9 @@ from pathlib import Path
 from collections.abc import Callable
 
 from ...config.settings import AppConfig
-from ...core.browser import open_browser
-from ...core.database import get_accounts, init_db
-from ...core.storage import db_path
+from common.browser import open_browser
+from common.database import get_accounts, init_db
+from src.core.storage import db_path
 from .image_lab import ImageLabParams, SessionExpiredError, run_image_lab
 from .session import save_session
 

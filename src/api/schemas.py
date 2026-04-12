@@ -25,7 +25,7 @@ from typing import Generic, TypeVar
 
 from pydantic import BaseModel, Field
 
-from ..core.enums import ErrorCode  # noqa: F401 — re-export for backward compat
+from common.enums import ErrorCode  # noqa: F401 — re-export for backward compat
 
 T = TypeVar("T")
 

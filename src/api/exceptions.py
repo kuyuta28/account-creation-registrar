@@ -84,5 +84,5 @@ async def generic_error_handler(request: Request, exc: Exception) -> JSONRespons
     )
     return JSONResponse(
         status_code=500,
-        content=err(ErrorCode.INTERNAL, str(exc)).model_dump(),
+        content=err(ErrorCode.INTERNAL, "Internal server error").model_dump(),
     )

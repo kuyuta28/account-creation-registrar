@@ -10,7 +10,7 @@ from playwright.async_api import Page
 
 from ...config.settings import AppConfig
 from ..protocols import LogFn
-from ...core.page_utils import safe_load, dump_debug_html as _dump_debug
+from common.page_utils import safe_load, dump_debug_html as _dump_debug
 
 
 async def get_credits_via_page(page: Page, log_fn: LogFn) -> int:

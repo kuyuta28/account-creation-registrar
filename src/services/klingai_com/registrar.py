@@ -16,9 +16,9 @@ import time
 from playwright.async_api import Page
 
 from ...config.settings import AppConfig
-from ...core.browser import open_browser
-from ...core.database import init_db
-from ...core.storage import AccountRecord, Repo, db_path, repo_save
+from common.browser import open_browser
+from common.database import init_db
+from src.core.storage import AccountRecord, Repo, db_path, repo_save
 from ..protocols import LogFn
 
 

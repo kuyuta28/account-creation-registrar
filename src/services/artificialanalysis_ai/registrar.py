@@ -23,9 +23,9 @@ from pathlib import Path
 from playwright.async_api import Page
 
 from ...config.settings import AppConfig
-from ...core.browser import open_browser
-from ...core.page_utils import dump_debug_html as _dump_debug
-from ...core.storage import AccountRecord, db_path
+from common.browser import open_browser
+from common.page_utils import dump_debug_html as _dump_debug
+from src.core.storage import AccountRecord, db_path
 from ...mail.client import Mailbox, create_mailbox, extract_link, wait_for_message
 from ..protocols import LogFn, SaveFn
 from .session import save_session
@@ -307,7 +307,7 @@ async def relogin_artificialanalysis(
 
         await save_session(db_path(cfg.base_dir), email, context)
 
-        from ...core.database import update_account  # noqa: PLC0415
+        from common.database import update_account  # noqa: PLC0415
         update_account(db_path(cfg.base_dir), "ARTIFICIALANALYSIS", email, check_status="valid")
 
         log_fn("✅ Session refreshed + check_status = valid")

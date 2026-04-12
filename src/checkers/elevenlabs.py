@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 import httpx
 
 from ..config.settings import load_config
-from ..core.storage import Repo, repo_all
+from src.core.storage import Repo, repo_all
 from .base import CheckResult
 
 if TYPE_CHECKING:

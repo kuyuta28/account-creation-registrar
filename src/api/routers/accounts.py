@@ -256,7 +256,7 @@ async def sync_auth_endpoint(target_dir: str | None = None):
     """Sync exported auth JSON files từ auth/ ra target_dir (hoặc từ config nếu không truyền)."""
     import asyncio
     from ...config.settings import load_config
-    from ...core.storage import Repo, repo_sync_auth
+    from src.core.storage import Repo, repo_sync_auth
     cfg = load_config()
     repo = Repo(base_dir=cfg.base_dir, auth_sync=cfg.auth_sync, cliproxy_sync=cfg.cliproxy_sync)
     dest = Path(target_dir) if target_dir else None

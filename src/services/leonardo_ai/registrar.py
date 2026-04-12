@@ -11,10 +11,10 @@ import re
 from playwright.async_api import Page
 
 from ...config.settings import AppConfig
-from ...core.browser import open_browser
-from ...core.page_utils import dump_debug_html as _dump_debug, safe_text
-from ...core.password import generate_password
-from ...core.storage import AccountRecord
+from common.browser import open_browser
+from common.page_utils import dump_debug_html as _dump_debug, safe_text
+from common.password import generate_password
+from src.core.storage import AccountRecord
 from ...mail.client import Mailbox, create_mailbox, wait_for_message
 from ..protocols import LogFn, SaveFn
 

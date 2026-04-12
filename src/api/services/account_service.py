@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ...config.settings import load_config
-from ...core.database import (
+from common.database import (
     add_service,
     delete_account,
     delete_service,
@@ -24,7 +24,7 @@ from ...core.database import (
     update_account,
     upsert_mailbox_record,
 )
-from ...core.storage import db_path
+from src.core.storage import db_path
 
 _log = logging.getLogger(__name__)
 
@@ -65,8 +65,8 @@ async def add_account(
     app_password: str = "",
     source_email: str = "",
 ) -> bool:
-    from ...core.storage import AccountRecord
-    from ...core.gmail_variations import _parse_gmail, normalize_gmail
+    from src.core.storage import AccountRecord
+    from src.core.gmail_variations import _parse_gmail, normalize_gmail
 
     clean_source_email = source_email.strip()
     if clean_source_email and _parse_gmail(clean_source_email):
@@ -105,7 +105,7 @@ async def remove_account(service: str, email: str) -> bool:
 
 
 async def remove_disabled_accounts(service: str) -> int:
-    from ...core.database import delete_disabled_service_accounts
+    from common.database import delete_disabled_service_accounts
     return await asyncio.to_thread(delete_disabled_service_accounts, _db_path(), service.upper())
 
 

@@ -24,8 +24,8 @@ from .exceptions import (
 from .routers import accounts, aa_proxy, config, gmail, image_lab, mailbox, providers, registration, sms
 from .schemas import ok
 from .ws.log_manager import get_bus, set_event_loop
-from ..core.logger import install_tee
-from ..core.sentry import init_sentry
+from common.logger import install_tee
+from common.sentry import init_sentry
 from ..config.settings import load_config
 
 # CORS origins: load từ config, có thể override qua API_CORS_ORIGINS (CSV)

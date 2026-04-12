@@ -12,17 +12,17 @@ from pathlib import Path
 from typing import Any
 
 from ...config.settings import load_config
-from ...core.database import (
+from common.database import (
     get_mailboxes,
     get_mailbox_record,
     save_mailbox_google_auth_state,
 )
-from ...core.google_oauth import (
+from src.core.google_oauth import (
     GOOGLE_SIGNIN_URL,
     LOGIN_TIMEOUT_MS,
     login_google_on_page,
 )
-from ...core.storage import db_path
+from src.core.storage import db_path
 
 _log = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ async def _db_path_async() -> Path:
 
 async def _login_google_single(email: str, password: str, totp_secret: str) -> str:
     """Login Google cho 1 account, trả về storage_state JSON string."""
-    from ...core.browser import open_browser
+    from common.browser import open_browser
     cfg = await asyncio.to_thread(load_config)
     async with open_browser(cfg, headless=False) as browser:
         ctx = await browser.new_context()

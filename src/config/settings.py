@@ -171,7 +171,7 @@ class MailConfig:
 
     def providers_for(self, service: str = "") -> tuple[str, ...]:
         """Query DB cho active mail providers. service='' → tất cả. Trả tuple rỗng nếu không có."""
-        from ..core.database import get_mail_providers
+        from common.database import get_mail_providers
         rows = get_mail_providers(
             self.db_path,
             service_tag=service.lower() if service else None,
@@ -458,7 +458,7 @@ def _parse_cliproxy_sync(raw: dict) -> ClipRoxySyncConfig:
 
 def _auto_seed_mailslurp_keys(db_path: Path, keys: list[str]) -> None:
     """Seed mailslurp keys từ yaml vào mail_providers table (idempotent)."""
-    from ..core.database import upsert_mail_provider, get_mail_providers
+    from common.database import upsert_mail_provider, get_mail_providers
     existing = {r["connection_str"] for r in get_mail_providers(db_path)}
     for key in keys:
         if f"mailslurp.com:{key}" not in existing:
@@ -468,7 +468,7 @@ def _auto_seed_mailslurp_keys(db_path: Path, keys: list[str]) -> None:
 
 def _auto_seed_free_providers(db_path: Path) -> None:
     """Seed FREE providers (no API key needed): mail.tm, guerrillamail.com."""
-    from ..core.database import upsert_mail_provider, get_mail_providers
+    from common.database import upsert_mail_provider, get_mail_providers
     existing = {r["connection_str"] for r in get_mail_providers(db_path)}
     # mail.tm — server_id chứa base URL
     if "https://api.mail.tm" not in existing:
@@ -545,7 +545,7 @@ def load_config(path: Path | None = None) -> AppConfig:
         base_dir = path.parent if path.is_dir() else path.parent.parent if path.parent.name == _CONFIG_DIR_NAME else path.parent
     raw = _load_raw(base_dir)
     db_path = base_dir / "data" / "accounts.db"
-    from ..core.database import init_db
+    from common.database import init_db
     init_db(db_path)
     browser_raw = _require_section(raw, "browser")
     return AppConfig(
