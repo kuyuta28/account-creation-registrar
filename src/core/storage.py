@@ -171,45 +171,66 @@ def should_export_openrouter_key(record: AccountRecord) -> bool:
 
 def export_openrouter_key(repo: Repo, record: AccountRecord) -> None:
     """Sync single OpenRouter API key vào CLIProxyAPI qua Management REST API."""
-    import httpx
-
     if repo.cliproxy_sync is None:
         return
+    _sync_compat_key(
+        management_url=repo.cliproxy_sync.management_url,
+        management_key=repo.cliproxy_sync.management_key,
+        name="openrouter",
+        base_url="https://openrouter.ai/api/v1",
+        api_key=record.api_key,
+    )
 
-    base_url = repo.cliproxy_sync.management_url.rstrip("/")
-    api_url = f"{base_url}/v0/management/openai-compatibility"
-    openrouter_base = "https://openrouter.ai/api/v1"
-    headers = {"Authorization": f"Bearer {repo.cliproxy_sync.management_key}"}
+
+def _sync_compat_key(management_url: str, management_key: str, name: str, base_url: str, api_key: str) -> None:
+    """Shared helper: upsert 1 api-key vào openai-compatibility entry trên CLIProxyAPI."""
+    import httpx
+
+    endpoint = f"{management_url.rstrip('/')}/v0/management/openai-compatibility"
+    base_url_clean = base_url.rstrip("/")
+    headers = {"Authorization": f"Bearer {management_key}"}
 
     with httpx.Client(timeout=10) as client:
-        resp = client.get(api_url, headers=headers)
+        resp = client.get(endpoint, headers=headers)
         resp.raise_for_status()
         compat_list: list = resp.json().get("openai-compatibility") or []
 
-        or_entry = next(
-            (e for e in compat_list if str(e.get("base-url", "")).rstrip("/") == openrouter_base),
+        entry = next(
+            (e for e in compat_list if str(e.get("base-url", "")).rstrip("/") == base_url_clean),
             None,
         )
-        if or_entry is None:
-            or_entry = {
-                "name": "openrouter",
-                "base-url": openrouter_base,
-                "api-key-entries": [],
-                "models": [],
-            }
-            compat_list.append(or_entry)
+        if entry is None:
+            entry = {"name": name, "base-url": base_url_clean, "api-key-entries": [], "models": []}
+            compat_list.append(entry)
 
-        existing_keys = {
-            e["api-key"] for e in (or_entry.get("api-key-entries") or [])
-            if isinstance(e, dict) and "api-key" in e
-        }
+        existing = {e["api-key"] for e in (entry.get("api-key-entries") or []) if isinstance(e, dict) and "api-key" in e}
+        if api_key in existing:
+            return
 
-        if record.api_key in existing_keys:
-            return  # Key đã có — skip
-
-        or_entry.setdefault("api-key-entries", []).append({"api-key": record.api_key})
-        put_resp = client.put(api_url, json=compat_list, headers=headers)
+        entry.setdefault("api-key-entries", []).append({"api-key": api_key})
+        put_resp = client.put(endpoint, json=compat_list, headers=headers)
         put_resp.raise_for_status()
+
+
+def should_export_ollama_key(record: AccountRecord) -> bool:
+    return (
+        record.service.upper() == "OLLAMA"
+        and bool(record.api_key)
+        and not record.disabled
+    )
+
+
+def export_ollama_key(repo: Repo, record: AccountRecord) -> None:
+    """Sync single Ollama API key vào CLIProxyAPI qua Management REST API."""
+    if repo.cliproxy_sync is None:
+        return
+    _sync_compat_key(
+        management_url=repo.cliproxy_sync.management_url,
+        management_key=repo.cliproxy_sync.management_key,
+        name="ollama",
+        base_url="https://ollama.com/v1",
+        api_key=record.api_key,
+    )
 
 
 def matching_exporters(record: AccountRecord) -> list[AccountExporter]:
@@ -218,6 +239,8 @@ def matching_exporters(record: AccountRecord) -> list[AccountExporter]:
         exporters.append(export_codex_auth)
     if should_export_openrouter_key(record):
         exporters.append(export_openrouter_key)
+    if should_export_ollama_key(record):
+        exporters.append(export_ollama_key)
     return exporters
 
 

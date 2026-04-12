@@ -175,9 +175,51 @@ async def get_generations(email: str, limit: int = 20, cursor: str | None = None
     return ok(result)
 
 
+# In-memory cache: generationConfigId → list of image dicts
+_generation_cache: dict[str, list[dict]] = {}
+
+
+def _parse_sse_generations(sse_text: str) -> tuple[str, list[dict]]:
+    """Parse SSE stream from AA /api/playground/generations.
+
+    Returns (generationConfigId, images) where each image is:
+    {"id": imageId, "status": "done", "generationIndex": int, "imageUrl": str}
+    Raises RuntimeError if no done event found.
+    """
+    images: list[dict] = []
+    config_id: str = ""
+
+    for line in sse_text.splitlines():
+        if not line.startswith("data: "):
+            continue
+        data_str = line[len("data: "):]
+        try:
+            event = json.loads(data_str)
+        except json.JSONDecodeError:
+            continue
+
+        event_type = event.get("type")
+        if event_type == "result":
+            images.append({
+                "id": event.get("imageId", ""),
+                "status": "done",
+                "generationIndex": event.get("generationIndex", len(images)),
+                "imageUrl": event.get("imageUrl", ""),
+            })
+        elif event_type == "done":
+            config_id = event.get("generationConfigId", "")
+        elif event_type == "error":
+            raise RuntimeError(f"AA generation error: {event.get('message', event)}")
+
+    if not config_id:
+        raise RuntimeError(f"No done event in AA SSE stream. Events: {sse_text[:300]}")
+
+    return config_id, images
+
+
 @router.post("/generate")
 async def generate_images(body: GenerateBody):
-    """Tạo generation mới qua AA API."""
+    """Tạo generation mới qua AA API (SSE stream → parsed JSON)."""
     accounts = await list_accounts("ARTIFICIALANALYSIS")
     account = next((a for a in accounts if a.get("email") == body.email), None)
     if not account:
@@ -197,8 +239,32 @@ async def generate_images(body: GenerateBody):
         },
     }
 
-    result = await _aa_post("/api/playground/generations", cookies, payload)
-    return ok(result)
+    # AA returns text/event-stream — collect full SSE text then parse
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        r = await client.post(
+            f"{_AA_BASE}/api/playground/generations",
+            cookies=cookies,
+            headers=_HEADERS,
+            json=payload,
+            timeout=120,
+        )
+
+    if r.status_code == 401:
+        raise AppError(ErrorCode.SESSION_EXPIRED, "Session AA hết hạn hoặc không hợp lệ", 401)
+    if r.status_code == 403:
+        body_json = {}
+        try:
+            body_json = r.json()
+        except (ValueError, KeyError):
+            pass
+        raise AppError(ErrorCode.INTERNAL, f"AA 403: {body_json.get('error', r.text[:200])}", 502)
+    if r.status_code not in (200, 201):
+        raise AppError(ErrorCode.INTERNAL, f"AA API error {r.status_code}: {r.text[:300]}", 502)
+
+    gen_config_id, images = _parse_sse_generations(r.text)
+    _generation_cache[gen_config_id] = images
+
+    return ok({"generationId": gen_config_id})
 
 
 @router.get("/image-proxy")
@@ -287,17 +353,14 @@ async def image_download(body: DownloadBody):
 
 @router.get("/generation/{gen_id}")
 async def get_generation(gen_id: str, email: str):
-    """Poll status + result của một generation."""
-    accounts = await list_accounts("ARTIFICIALANALYSIS")
-    account = next((a for a in accounts if a.get("email") == email), None)
-    if not account:
-        raise AppError(ErrorCode.NOT_FOUND, f"Không tìm thấy account {email}", 404)
-    if not account.get("session_state"):
-        raise AppError(ErrorCode.SESSION_EXPIRED, f"Account {email} chưa có session_state", 401)
+    """Trả về images đã được parse từ cache sau khi /generate hoàn tất.
 
-    cookies = _build_cookies(account["session_state"])
-    result = await _aa_get(f"/api/playground/generations/{gen_id}", cookies)
-    return ok(result)
+    AA API dùng SSE stream synchronous — images được parse và cache trong /generate.
+    Endpoint này chỉ serve từ cache (không gọi lại AA).
+    """
+    if gen_id not in _generation_cache:
+        raise AppError(ErrorCode.NOT_FOUND, f"Generation {gen_id} not found in cache", 404)
+    return ok({"images": _generation_cache[gen_id]})
 
 
 # ── Re-login ──────────────────────────────────────────────────────────────────
@@ -316,3 +379,307 @@ async def relogin_account(body: ReloginBody):
     logs: list[str] = []
     await relogin_artificialanalysis(body.email, cfg, logs.append)
     return ok({"email": body.email, "logs": logs})
+
+
+# ── Check sessions ────────────────────────────────────────────────────────────
+
+_check_lock = asyncio.Lock()
+_check_state: dict[str, Any] = {
+    "running": False,
+    "cancelled": False,
+    "total": 0,
+    "checked": 0,
+    "valid": 0,
+    "expired": 0,
+    "errors": 0,
+    "results": [],
+}
+
+
+@router.post("/check-sessions")
+async def check_all_sessions():
+    """Kiểm tra toàn bộ AA accounts xem session còn hạn không (chạy concurrent)."""
+    from ..services.checker_service import check_and_persist
+
+    async with _check_lock:
+        if _check_state["running"]:
+            return ok({**_check_state, "message": "already running"})
+
+    accounts = await list_accounts("ARTIFICIALANALYSIS")
+    total = len(accounts)
+    if total == 0:
+        raise AppError(ErrorCode.NOT_FOUND, "Không có account AA nào", 404)
+
+    async with _check_lock:
+        _check_state.update({"running": True, "cancelled": False, "total": total, "checked": 0,
+                              "valid": 0, "expired": 0, "errors": 0, "results": []})
+
+    sem = asyncio.Semaphore(15)
+
+    async def _check_one(acc: dict) -> None:
+        email = acc["email"]
+        async with _check_lock:
+            if _check_state["cancelled"]:
+                return
+        async with sem:
+            async with _check_lock:
+                if _check_state["cancelled"]:
+                    return
+            try:
+                result = await check_and_persist("ARTIFICIALANALYSIS", email)
+                cs = result.get("check_status", "error")
+            except (RuntimeError, ValueError, KeyError) as exc:
+                cs = "error"
+                result = {"check_status": cs, "last_error": str(exc)[:200]}
+
+        async with _check_lock:
+            _check_state["checked"] += 1
+            if cs == "valid":
+                _check_state["valid"] += 1
+            elif cs == "expired":
+                _check_state["expired"] += 1
+            else:
+                _check_state["errors"] += 1
+            _check_state["results"].append({
+                "email": email,
+                "check_status": cs,
+                "last_error": result.get("last_error", ""),
+            })
+
+    async def _worker():
+        await asyncio.gather(*[_check_one(acc) for acc in accounts])
+        async with _check_lock:
+            _check_state["running"] = False
+
+    asyncio.create_task(_worker())
+    return ok({"message": "started", "total": total})
+
+
+@router.get("/check-sessions/status")
+async def check_sessions_status():
+    """Poll trạng thái batch check sessions."""
+    async with _check_lock:
+        return ok(dict(_check_state))
+
+
+@router.post("/check-sessions/cancel")
+async def cancel_check_sessions():
+    """Dừng batch check sessions."""
+    async with _check_lock:
+        if not _check_state["running"]:
+            return ok({"cancelled": False, "message": "not running"})
+        _check_state["cancelled"] = True
+        _check_state["running"] = False
+    return ok({"cancelled": True})
+
+
+# ── Batch re-login (testmail only) ────────────────────────────────────────────
+
+_relogin_lock = asyncio.Lock()
+_relogin_state: dict[str, Any] = {
+    "running": False,
+    "cancelled": False,
+    "total": 0,
+    "done": 0,
+    "success": 0,
+    "failed": 0,
+    "results": [],
+}
+
+
+@router.post("/batch-relogin")
+async def batch_relogin():
+    """Re-login toàn bộ AA testmail accounts bị expired (tuần tự — Playwright không chạy concurrent)."""
+    from ...config.settings import load_config
+    from ...services.artificialanalysis_ai.registrar import relogin_artificialanalysis
+
+    async with _relogin_lock:
+        if _relogin_state["running"]:
+            return ok({**_relogin_state, "message": "already running"})
+
+    accounts = await list_accounts("ARTIFICIALANALYSIS")
+    # Chỉ testmail bị expired — không relogin sharebot/maildrop/v.v. vì one-time
+    candidates = [
+        a for a in accounts
+        if a.get("email", "").endswith("@inbox.testmail.app")
+        and a.get("check_status") in ("expired", "error", None, "")
+        and not a.get("disabled")
+    ]
+    total = len(candidates)
+    if total == 0:
+        raise AppError(ErrorCode.NOT_FOUND, "Không có AA testmail account expired nào cần relogin", 404)
+
+    async with _relogin_lock:
+        _relogin_state.update({
+            "running": True, "cancelled": False,
+            "total": total, "done": 0, "success": 0, "failed": 0,
+            "results": [],
+        })
+
+    cfg = load_config()
+    sem = asyncio.Semaphore(5)
+
+    async def _relogin_one(acc: dict) -> None:
+        email = acc["email"]
+        async with _relogin_lock:
+            if _relogin_state["cancelled"]:
+                return
+        async with sem:
+            async with _relogin_lock:
+                if _relogin_state["cancelled"]:
+                    return
+            logs: list[str] = []
+            try:
+                await relogin_artificialanalysis(email, cfg, logs.append)
+                status = "success"
+                error = ""
+            except (RuntimeError, ValueError, httpx.HTTPError) as exc:
+                status = "failed"
+                error = str(exc)[:300]
+            async with _relogin_lock:
+                _relogin_state["done"] += 1
+                _relogin_state["success" if status == "success" else "failed"] += 1
+                _relogin_state["results"].append({
+                    "email": email,
+                    "status": status,
+                    "error": error,
+                })
+
+    async def _worker():
+        await asyncio.gather(*[_relogin_one(acc) for acc in candidates])
+        async with _relogin_lock:
+            _relogin_state["running"] = False
+
+    asyncio.create_task(_worker())
+    return ok({"message": "started", "total": total})
+
+
+@router.get("/batch-relogin/status")
+async def batch_relogin_status():
+    """Poll trạng thái batch re-login."""
+    async with _relogin_lock:
+        return ok(dict(_relogin_state))
+
+
+@router.post("/batch-relogin/cancel")
+async def batch_relogin_cancel():
+    """Dừng batch re-login (sau khi account hiện tại xong)."""
+    async with _relogin_lock:
+        if not _relogin_state["running"]:
+            return ok({"cancelled": False, "message": "not running"})
+        _relogin_state["cancelled"] = True
+    return ok({"cancelled": True})
+
+
+# ── Batch accept Image Lab Terms (for existing sessions) ──────────────────────
+
+_terms_lock = asyncio.Lock()
+_terms_state: dict[str, Any] = {
+    "running": False,
+    "cancelled": False,
+    "total": 0,
+    "done": 0,
+    "success": 0,
+    "failed": 0,
+    "results": [],
+}
+
+
+@router.post("/batch-accept-terms")
+async def batch_accept_terms(all: bool = False):
+    """Accept Image Lab Terms of Use cho AA accounts có session_state.
+
+    Mặc định chỉ xử lý testmail accounts. Truyền ?all=true để xử lý toàn bộ.
+    Gọi trực tiếp POST /api/playground/terms-acceptance — không cần Playwright.
+    """
+    async with _terms_lock:
+        if _terms_state["running"]:
+            return ok({**_terms_state, "message": "already running"})
+
+    accounts = await list_accounts("ARTIFICIALANALYSIS")
+    candidates = [
+        a for a in accounts
+        if a.get("session_state")
+        and not a.get("disabled")
+        and (all or "testmail" in a.get("email", ""))
+    ]
+    total = len(candidates)
+    if total == 0:
+        raise AppError(ErrorCode.NOT_FOUND, "Không có AA account nào có session_state", 404)
+
+    async with _terms_lock:
+        _terms_state.update({
+            "running": True, "cancelled": False,
+            "total": total, "done": 0, "success": 0, "failed": 0,
+            "results": [],
+        })
+
+    _AA_TERMS_URL = "https://artificialanalysis.ai/api/playground/terms-acceptance"
+    _TERMS_HEADERS = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Origin": "https://artificialanalysis.ai",
+        "Referer": "https://artificialanalysis.ai/image/image-lab",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0",
+    }
+    sem = asyncio.Semaphore(20)
+
+    async def _accept_one(acc: dict, client: httpx.AsyncClient) -> None:
+        email = acc["email"]
+        async with _terms_lock:
+            if _terms_state["cancelled"]:
+                return
+        async with sem:
+            async with _terms_lock:
+                if _terms_state["cancelled"]:
+                    return
+            try:
+                cookies = {c["name"]: c["value"] for c in json.loads(acc["session_state"]).get("cookies", [])}
+                r = await client.post(
+                    _AA_TERMS_URL,
+                    cookies=cookies,
+                    headers=_TERMS_HEADERS,
+                    content=b"{}",
+                    timeout=15,
+                )
+                if r.status_code not in (200, 201):
+                    raise RuntimeError(f"HTTP {r.status_code}: {r.text[:100]}")
+                status = "success"
+                error = ""
+            except (RuntimeError, ValueError, httpx.HTTPError) as exc:
+                status = "failed"
+                error = str(exc)[:300]
+            async with _terms_lock:
+                _terms_state["done"] += 1
+                _terms_state["success" if status == "success" else "failed"] += 1
+                _terms_state["results"].append({
+                    "email": email,
+                    "status": status,
+                    "error": error,
+                })
+
+    async def _worker() -> None:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            await asyncio.gather(*[_accept_one(acc, client) for acc in candidates])
+        async with _terms_lock:
+            _terms_state["running"] = False
+
+    asyncio.create_task(_worker())
+    return ok({"message": "started", "total": total})
+
+
+@router.get("/batch-accept-terms/status")
+async def batch_accept_terms_status():
+    """Poll trạng thái batch accept-terms."""
+    async with _terms_lock:
+        return ok(dict(_terms_state))
+
+
+@router.post("/batch-accept-terms/cancel")
+async def batch_accept_terms_cancel():
+    """Dừng batch accept-terms."""
+    async with _terms_lock:
+        if not _terms_state["running"]:
+            return ok({"cancelled": False, "message": "not running"})
+        _terms_state["cancelled"] = True
+    return ok({"cancelled": True})

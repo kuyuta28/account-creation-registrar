@@ -146,6 +146,39 @@ async def _create_api_key(
     return api_key
 
 
+async def _accept_image_lab_terms(page: Page, timeout_ms: int, log_fn: LogFn, debug_dir: Path) -> None:
+    """Navigate to Image Lab, trigger terms dialog, and accept."""
+    image_lab_url = f"{_BASE_URL}/image/image-lab"
+    log_fn(f"  Opening {image_lab_url}...")
+    await page.goto(image_lab_url, timeout=timeout_ms * 2, wait_until="domcontentloaded")
+    await page.wait_for_timeout(3000)
+    await _dump_debug(page, "aa_image_lab_loaded.html", debug_dir)
+
+    # Fill dummy prompt to enable Start Generation button
+    prompt_area = page.locator("textarea").first
+    if await prompt_area.count() > 0:
+        await prompt_area.fill("test")
+        await page.wait_for_timeout(300)
+
+    # Click Start Generation to trigger Terms dialog
+    start_btn = page.locator("button:has-text('Start Generation')").first
+    if await start_btn.count() == 0:
+        raise RuntimeError("'Start Generation' button not found on Image Lab page")
+    await start_btn.click()
+    await page.wait_for_timeout(2500)
+    await _dump_debug(page, "aa_image_lab_terms_dialog.html", debug_dir)
+
+    # Click accept button in terms dialog
+    agree_btn = page.locator("button:has-text('I agree to the Image Lab Terms of Use')").first
+    if await agree_btn.count() == 0:
+        log_fn("  (No terms dialog — already accepted or not triggered)")
+        return
+    await agree_btn.click()
+    await page.wait_for_timeout(2000)
+    await _dump_debug(page, "aa_image_lab_after_accept.html", debug_dir)
+    log_fn("  ✅ Image Lab Terms of Use accepted")
+
+
 # ── Full flow ──────────────────────────────────────────────────────────
 
 async def _signup_flow(
@@ -178,6 +211,9 @@ async def _signup_flow(
     org_slug = await _navigate_magic_link(page, link, t.page_load, log_fn)
     log_fn(f"  Org slug: {org_slug}")
     await _dump_debug(page, "aa_03_dashboard.html", debug_dir)
+
+    log_fn("\n[4.5/5] Accepting Image Lab Terms of Use...")
+    await _accept_image_lab_terms(page, t.page_load, log_fn, debug_dir)
 
     log_fn("\n[5/5] Creating API key...")
     api_key = await _create_api_key(
@@ -266,8 +302,15 @@ async def relogin_artificialanalysis(
         await _navigate_magic_link(page, link, t.page_load, log_fn)
         await _dump_debug(page, "aa_relogin_03_dashboard.html", debug_dir)
 
+        log_fn("\n[4.5/4] Accepting Image Lab Terms of Use...")
+        await _accept_image_lab_terms(page, t.page_load, log_fn, debug_dir)
+
         await save_session(db_path(cfg.base_dir), email, context)
-        log_fn("✅ Session refreshed")
+
+        from ...core.database import update_account  # noqa: PLC0415
+        update_account(db_path(cfg.base_dir), "ARTIFICIALANALYSIS", email, check_status="valid")
+
+        log_fn("✅ Session refreshed + check_status = valid")
 
 
 async def register_artificialanalysis(

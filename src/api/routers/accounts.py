@@ -41,6 +41,7 @@ from ..services.checker_service import (
 )
 from ..services.sync_service import (
     sync_cliproxy,
+    sync_ollama_to_cliproxy,
     sync_openrouter_to_cliproxy,
 )
 
@@ -234,6 +235,15 @@ async def sync_cliproxy_endpoint():
 async def sync_openrouter_cliproxy_endpoint():
     try:
         result = await sync_openrouter_to_cliproxy()
+    except FileNotFoundError as e:
+        raise AppError(ErrorCode.NOT_FOUND, str(e), 404)
+    return ok(result)
+
+
+@router.post("/sync-ollama-cliproxy")
+async def sync_ollama_cliproxy_endpoint():
+    try:
+        result = await sync_ollama_to_cliproxy()
     except FileNotFoundError as e:
         raise AppError(ErrorCode.NOT_FOUND, str(e), 404)
     return ok(result)

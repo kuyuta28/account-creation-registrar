@@ -90,6 +90,12 @@ class _AccountElevenLabs(_Base):
     api_key:    Mapped[str] = mapped_column(Text, default="")
 
 
+class _AccountOllama(_Base):
+    __tablename__ = "accounts_ollama"
+    account_id: Mapped[int] = mapped_column(Integer, ForeignKey("accounts.id", ondelete="CASCADE"), primary_key=True)
+    api_key:    Mapped[str] = mapped_column(Text, default="")
+
+
 class _AccountTestmail(_Base):
     __tablename__ = "accounts_testmail"
     account_id: Mapped[int] = mapped_column(Integer, ForeignKey("accounts.id", ondelete="CASCADE"), primary_key=True)
@@ -111,6 +117,7 @@ _EXTENSION_MODELS: dict[str, type] = {
     "OPENROUTER":         _AccountOpenRouter,
     "2SLIDES":            _AccountTwoSlides,
     "ELEVENLABS":         _AccountElevenLabs,
+    "OLLAMA":             _AccountOllama,
     "TESTMAIL":           _AccountTestmail,
     "MAILOSAUR":          _AccountMailosaur,
 }
@@ -129,6 +136,7 @@ _EXT_UPDATABLE: dict[str, frozenset[str]] = {
                                      "access_token", "id_token", "token_type", "expired", "last_refresh"}),
     "2SLIDES":            frozenset({"api_key", "credits"}),
     "ELEVENLABS":         frozenset({"api_key"}),
+    "OLLAMA":             frozenset({"api_key"}),
     "TESTMAIL":           frozenset({"api_key"}),
     "MAILOSAUR":          frozenset({"api_key", "server_id", "account_id"}),
 }
@@ -232,9 +240,11 @@ def _now() -> str:
 
 
 def _compute_status(disabled: bool, check_status: str) -> str:
-    if disabled or check_status in ("invalid", "error"):
+    if disabled or check_status == "invalid":
         return "disabled"
-    if not check_status:
+    if check_status == "expired":
+        return "expired"
+    if not check_status or check_status == "error":
         return "unchecked"
     return "active"
 
@@ -301,7 +311,7 @@ def _to_dict(row: _Account, ext=None) -> dict[str, Any]:
     elif svc == "2SLIDES":
         d["api_key"] = ext.api_key
         d["credits"] = ext.credits
-    elif svc in ("ELEVENLABS", "TESTMAIL"):
+    elif svc in ("ELEVENLABS", "OLLAMA", "TESTMAIL"):
         d["api_key"] = ext.api_key
     elif svc == "MAILOSAUR":
         d["api_key"]    = ext.api_key
@@ -418,6 +428,8 @@ def _ext_values(record) -> dict | None:
                 "credits": getattr(record, "credits", 0),
             }
         case "ELEVENLABS":
+            return {"api_key": getattr(record, "api_key", "")}
+        case "OLLAMA":
             return {"api_key": getattr(record, "api_key", "")}
         case "TESTMAIL":
             return {"api_key": getattr(record, "api_key", "")}

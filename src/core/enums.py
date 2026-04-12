@@ -64,6 +64,7 @@ class CheckStatus(str, enum.Enum):
     VALID = "valid"
     INVALID = "invalid"
     ERROR = "error"
+    EXPIRED = "expired"  # session hết hạn, cần re-login (khác invalid: account vẫn sống)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

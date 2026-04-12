@@ -20,6 +20,7 @@ from ...core.storage import db_path
 _log = logging.getLogger(__name__)
 
 _OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+_OLLAMA_BASE_URL = "https://ollama.com/v1"
 
 
 def _db_path():
@@ -86,6 +87,63 @@ async def sync_openrouter_to_cliproxy() -> dict[str, Any]:
     }
 
 
+async def sync_ollama_to_cliproxy() -> dict[str, Any]:
+    """Sync OLLAMA API keys từ DB vào CLIProxyAPI qua Management REST API."""
+    cfg = load_config()
+    base_url = cfg.cliproxy_sync.management_url.rstrip("/")
+    api_url = f"{base_url}/v0/management/openai-compatibility"
+    headers = {"Authorization": f"Bearer {cfg.cliproxy_sync.management_key}"}
+
+    all_accs = await asyncio.to_thread(get_accounts, _db_path(), "OLLAMA", True)
+    db_keys = {
+        acc["api_key"] for acc in all_accs
+        if acc.get("api_key")
+        and not acc.get("disabled")
+        and acc.get("check_status") not in ("invalid", "error")
+    }
+
+    if not db_keys:
+        return {"added": 0, "total": 0, "message": "no active OLLAMA keys in DB"}
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        get_resp = await client.get(api_url, headers=headers)
+        get_resp.raise_for_status()
+        compat_list: list = get_resp.json().get("openai-compatibility") or []
+
+        entry = next(
+            (e for e in compat_list if str(e.get("base-url", "")).rstrip("/") == _OLLAMA_BASE_URL),
+            None,
+        )
+        if entry is None:
+            entry = {
+                "name": "ollama",
+                "base-url": _OLLAMA_BASE_URL,
+                "api-key-entries": [],
+                "models": [],
+            }
+            compat_list.append(entry)
+
+        existing_keys = {
+            e["api-key"] for e in (entry.get("api-key-entries") or [])
+            if isinstance(e, dict) and "api-key" in e
+        }
+
+        added_keys = [k for k in sorted(db_keys) if k not in existing_keys]
+        for key in added_keys:
+            entry.setdefault("api-key-entries", []).append({"api-key": key})
+
+        if added_keys:
+            put_resp = await client.put(api_url, json=compat_list, headers=headers)
+            put_resp.raise_for_status()
+            _log.info("sync_ollama_cliproxy: added %d keys via API", len(added_keys))
+
+    return {
+        "added": len(added_keys),
+        "total": len(entry.get("api-key-entries", [])),
+        "keys_added": added_keys,
+    }
+
+
 async def sync_cliproxy() -> dict[str, Any]:
     """Xóa auth files của CHATGPT accounts disabled/invalid/error khỏi CLIProxyAPI auth dir."""
     cfg = load_config()
@@ -101,7 +159,7 @@ async def sync_cliproxy() -> dict[str, Any]:
     }
 
     if not bad_emails:
-        return {"deleted": 0, "files": [], "message": "no disabled/invalid accounts"}
+        return {"deleted": 0, "files": [], "bad_count": 0}
 
     def _do_cleanup() -> list[str]:
         deleted: list[str] = []

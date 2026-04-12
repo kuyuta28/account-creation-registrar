@@ -170,6 +170,60 @@ async def _check_openrouter(account: dict[str, Any], cfg: Any, now: str) -> dict
     }
 
 
+async def _check_aa_session(account: dict[str, Any], cfg: Any, now: str) -> dict[str, Any]:
+    """Check session AA còn hạn không bằng cách gọi /api/auth/get-session."""
+    import httpx
+
+    session_state = account.get("session_state", "")
+    if not session_state:
+        check_status = CheckStatus.EXPIRED
+        await asyncio.to_thread(update_account, _db_path(), "ARTIFICIALANALYSIS", account["email"], **{
+            "check_status": check_status,
+            "last_checked": now,
+            "last_error": "no session_state",
+        })
+        return {"valid": False, "check_status": check_status, "last_checked": now, "last_error": "no session_state"}
+
+    from ...api.routers.aa_proxy import _build_cookies, _HEADERS, _AA_BASE
+    cookies = _build_cookies(session_state)
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(
+                f"{_AA_BASE}/api/auth/get-session",
+                cookies=cookies,
+                headers=_HEADERS,
+            )
+
+        body = r.json() if r.status_code == 200 else None
+        if r.status_code == 401 or (r.status_code == 200 and not (body or {}).get("session")):
+            check_status = CheckStatus.EXPIRED
+            last_error = "session expired"
+        elif r.status_code == 200:
+            check_status = CheckStatus.VALID
+            last_error = ""
+        else:
+            check_status = CheckStatus.ERROR
+            last_error = f"HTTP {r.status_code}"
+
+    except (httpx.HTTPError, ValueError, KeyError) as exc:
+        check_status = CheckStatus.ERROR
+        last_error = str(exc)[:200]
+
+    await asyncio.to_thread(update_account, _db_path(), "ARTIFICIALANALYSIS", account["email"], **{
+        "check_status": check_status,
+        "last_checked": now,
+        "last_error": last_error,
+    })
+    return {
+        "valid": check_status == CheckStatus.VALID,
+        "check_status": check_status,
+        "last_checked": now,
+        "last_error": last_error,
+        "token_refreshed": False,
+    }
+
+
 # CheckerFn = (account_row, cfg, now_str) -> result_dict
 CheckerFn = Callable[[dict[str, Any], Any, str], Awaitable[dict[str, Any]]]
 
@@ -177,6 +231,7 @@ _CHECKERS: dict[str, AccountCheckerProtocol] = {
     "CHATGPT": _check_chatgpt,  # type: ignore[dict-item]
     "ELEVENLABS": _check_elevenlabs,  # type: ignore[dict-item]
     "OPENROUTER": _check_openrouter,  # type: ignore[dict-item]
+    "ARTIFICIALANALYSIS": _check_aa_session,  # type: ignore[dict-item]
 }
 
 
