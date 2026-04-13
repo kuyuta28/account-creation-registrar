@@ -113,7 +113,7 @@ async def human_click(
     page: Page,
     x: float,
     y: float,
-    button: "Literal['left', 'middle', 'right']" = "left",
+    button: Literal['left', 'middle', 'right'] = "left",
     hold_ms: float | None = None,
 ) -> None:
     """

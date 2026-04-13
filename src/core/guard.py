@@ -38,7 +38,7 @@ from playwright.async_api import Locator, Page, TimeoutError as PlaywrightTimeou
 async def try_locator(
     locator: Locator,
     *,
-    state: "Literal['attached', 'detached', 'hidden', 'visible']" = "visible",
+    state: Literal['attached', 'detached', 'hidden', 'visible'] = "visible",
     timeout_ms: int = 3_000,
 ) -> bool:
     """

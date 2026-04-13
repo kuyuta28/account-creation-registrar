@@ -334,7 +334,7 @@ def _to_dict(row: _Account, ext=None) -> dict[str, Any]:
     return d
 
 
-def _to_mailbox_dict(row: _Account, ext: "_AccountGmail | None" = None) -> dict[str, Any]:
+def _to_mailbox_dict(row: _Account, ext: _AccountGmail | None = None) -> dict[str, Any]:
     return {
         "email":             row.email,
         "app_password":      ext.app_password if ext else "",

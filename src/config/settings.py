@@ -492,13 +492,21 @@ def _auto_seed_free_providers(db_path: Path) -> None:
         upsert_mail_provider(db_path, "guerrillamail.com", api_key="", server_id="", label="Guerrilla Mail")
 
 
-def _parse_mail(raw: dict, db_path: Path) -> MailConfig:
-    """Parse MailConfig. Auto-seed providers: mailslurp (from yaml), free providers.
-    db_path is injected programmatically — not from YAML."""
-    mailslurp_keys = [str(k).strip() for k in raw.get("mailslurp_api_keys", []) if str(k).strip()]
+def seed_mail_providers(cfg: AppConfig) -> None:
+    """Auto-seed mail providers from config (mailslurp keys + free providers).
+    Call this once at startup, after load_config()."""
+    raw = _load_raw(cfg.base_dir)
+    mail_raw = _require_section(raw, "mail")
+    mailslurp_keys = [str(k).strip() for k in mail_raw.get("mailslurp_api_keys", []) if str(k).strip()]
     if mailslurp_keys:
-        _auto_seed_mailslurp_keys(db_path, mailslurp_keys)
-    _auto_seed_free_providers(db_path)
+        _auto_seed_mailslurp_keys(cfg.mail.db_path, mailslurp_keys)
+    _auto_seed_free_providers(cfg.mail.db_path)
+
+
+def _parse_mail(raw: dict, db_path: Path) -> MailConfig:
+    """Parse MailConfig from YAML dict.
+    db_path is injected programmatically — not from YAML.
+    Note: auto-seeding providers is done in seed_mail_providers(), not here."""
     return MailConfig(
         cooldown_sec=int(_strict(raw, "cooldown_sec", "mail")),
         max_consecutive_fails=int(_strict(raw, "max_consecutive_fails", "mail")),
@@ -564,8 +572,6 @@ def load_config(path: Path | None = None) -> AppConfig:
         base_dir = path.parent if path.is_dir() else path.parent.parent if path.parent.name == _CONFIG_DIR_NAME else path.parent
     raw = _load_raw(base_dir)
     db_path = base_dir / "data" / "accounts.db"
-    from common.database import init_db
-    init_db(db_path)
     browser_raw = _require_section(raw, "browser")
     return AppConfig(
         log=_parse_log(_require_section(raw, "log")),

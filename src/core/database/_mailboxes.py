@@ -21,13 +21,13 @@ from ._services import _ensure_service_exists
 
 # ── Mailbox CRUD ──────────────────────────────────────────────────────────────
 
-def _get_gmail_ext(s, row: _Account) -> "_AccountGmail | None":
+def _get_gmail_ext(s, row: _Account) -> _AccountGmail | None:
     return s.scalars(
         select(_AccountGmail).where(_AccountGmail.account_id == row.id)
     ).first()
 
 
-def _get_gmail_exts(s, rows: list[_Account]) -> dict[int, "_AccountGmail"]:
+def _get_gmail_exts(s, rows: list[_Account]) -> dict[int, _AccountGmail]:
     if not rows:
         return {}
     ids = [r.id for r in rows]

@@ -16,7 +16,6 @@ import asyncio
 import base64
 import json
 import time
-from collections.abc import Callable
 from typing import Any
 
 from .._base import LogFn, Mailbox, _tprint

@@ -265,7 +265,7 @@ async def relogin_artificialanalysis(
             "Kiểm tra bảng mail_providers."
         )
 
-    from ...mail._base import TESTMAIL_BASE, Mailbox as _Mailbox  # noqa: PLC0415
+    from ...mail._base import TESTMAIL_BASE, Mailbox as _Mailbox
     mailbox = _Mailbox(
         email=email,
         token=namespace,
@@ -307,7 +307,7 @@ async def relogin_artificialanalysis(
 
         await save_session(db_path(cfg.base_dir), email, context)
 
-        from common.database import update_account  # noqa: PLC0415
+        from common.database import update_account
         update_account(db_path(cfg.base_dir), "ARTIFICIALANALYSIS", email, check_status="valid")
 
         log_fn("✅ Session refreshed + check_status = valid")

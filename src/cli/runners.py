@@ -255,9 +255,6 @@ def main_run_elevenlabs() -> None:
     run_elevenlabs(parse_count_arg())
 
 
-def main_run_chatgpt() -> None:
-    run_chatgpt(parse_count_arg(), parse_workers_arg())
-
 
 def main_run_leonardo() -> None:
     run_leonardo(parse_count_arg())

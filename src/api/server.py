@@ -26,7 +26,7 @@ from .schemas import ok
 from .ws.log_manager import get_bus, set_event_loop
 from common.logger import install_tee
 from common.sentry import init_sentry
-from ..config.settings import load_config
+from ..config.settings import load_config, seed_mail_providers
 
 # CORS origins: load từ config, có thể override qua API_CORS_ORIGINS (CSV)
 _app_cfg = load_config()
@@ -43,6 +43,7 @@ async def _lifespan(app: FastAPI):
     _cfg = load_config()
     install_tee(_cfg.base_dir, _cfg.log.all_log)
     init_sentry(_cfg.sentry)
+    seed_mail_providers(_cfg)
     set_event_loop(get_bus(), asyncio.get_running_loop())
     yield
 
