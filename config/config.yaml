@@ -31,6 +31,12 @@ api:
     - http://localhost:1420
     - http://localhost:1421
     - tauri://localhost
+    - https://tauri.localhost
+google_oauth:
+  login_url: https://accounts.google.com/signin/v2/identifier
+  myaccount_url: https://myaccount.google.com
+  login_timeout_ms: 60000
+  popup_close_timeout_ms: 30000
 auth_sync:
   enabled: true
   target_dir: C:\Users\admin\.ccs\cliproxy\auth

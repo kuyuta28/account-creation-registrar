@@ -18,8 +18,8 @@ from common.database import (
     save_mailbox_google_auth_state,
 )
 from src.core.google_oauth import (
-    GOOGLE_SIGNIN_URL,
-    LOGIN_TIMEOUT_MS,
+    get_login_url,
+    get_login_timeout_ms,
     login_google_on_page,
 )
 from src.core.storage import db_path
@@ -39,9 +39,9 @@ async def _login_google_single(email: str, password: str, totp_secret: str) -> s
     async with open_browser(cfg, headless=False) as browser:
         ctx = await browser.new_context()
         page = await ctx.new_page()
-        await page.goto(GOOGLE_SIGNIN_URL, wait_until="domcontentloaded")
+        await page.goto(get_login_url(), wait_until="domcontentloaded")
         await login_google_on_page(page, email, password, totp_secret, db_path=db_path(cfg.base_dir))
-        await page.wait_for_url("https://myaccount.google.com/**", timeout=LOGIN_TIMEOUT_MS, wait_until="commit")
+        await page.wait_for_url("https://myaccount.google.com/**", timeout=get_login_timeout_ms(), wait_until="commit")
         state = await ctx.storage_state()
         await ctx.close()
     return json.dumps(state)

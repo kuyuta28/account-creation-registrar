@@ -164,6 +164,19 @@ class MailConfig:
     max_consecutive_fails: int = 3
     db_path: Path = field(default_factory=lambda: Path("data/accounts.db"))
     retryable_status_codes: tuple[int, ...] = field(default_factory=lambda: (429, 500, 502, 503, 504))
+    http_timeout_sec: int = 15
+    wait_timeout_sec: int = 120
+    poll_interval_sec: int = 5
+    max_retries: int = 3
+    retry_max_delay_sec: int = 30
+
+
+@dataclass(frozen=True)
+class GoogleOAuthConfig:
+    login_url: str = "https://accounts.google.com/signin/v2/identifier"
+    myaccount_url: str = "https://myaccount.google.com"
+    login_timeout_ms: int = 60_000
+    popup_close_timeout_ms: int = 30_000
 
     @property
     def all_providers(self) -> tuple[str, ...]:
@@ -340,6 +353,7 @@ class AppConfig:
     twoslides: TwoSlidesConfig = field(default_factory=TwoSlidesConfig)
     testmail: TestmailConfig = field(default_factory=TestmailConfig)
     mail: MailConfig = field(default_factory=MailConfig)
+    google_oauth: GoogleOAuthConfig = field(default_factory=GoogleOAuthConfig)
     auth_sync: AuthSyncConfig = field(default_factory=AuthSyncConfig)
     cliproxy_sync: ClipRoxySyncConfig = field(default_factory=ClipRoxySyncConfig)
     sentry: SentryConfig = field(default_factory=SentryConfig)
@@ -490,6 +504,11 @@ def _parse_mail(raw: dict, db_path: Path) -> MailConfig:
         max_consecutive_fails=int(_strict(raw, "max_consecutive_fails", "mail")),
         db_path=db_path,
         retryable_status_codes=tuple(int(c) for c in _strict(raw, "retryable_status_codes", "mail")),
+        http_timeout_sec=int(raw.get("http_timeout_sec", 15)),
+        wait_timeout_sec=int(raw.get("wait_timeout_sec", 120)),
+        poll_interval_sec=int(raw.get("poll_interval_sec", 5)),
+        max_retries=int(raw.get("max_retries", 3)),
+        retry_max_delay_sec=int(raw.get("retry_max_delay_sec", 30)),
     )
 
 
@@ -569,6 +588,7 @@ def load_config(path: Path | None = None) -> AppConfig:
         twoslides=_parse_section_strict(TwoSlidesConfig, _require_section(raw, "twoslides"), "twoslides"),
         testmail=_parse_section_strict(TestmailConfig, _require_section(raw, "testmail"), "testmail"),
         mail=_parse_mail(_require_section(raw, "mail"), db_path),
+        google_oauth=_parse_section_strict(GoogleOAuthConfig, _require_section(raw, "google_oauth"), "google_oauth"),
         auth_sync=_parse_auth_sync(_require_section(raw, "auth_sync")),
         cliproxy_sync=_parse_cliproxy_sync(_require_section(raw, "cliproxy_sync")),
         sentry=_parse_section_strict(SentryConfig, _require_section(raw, "sentry"), "sentry"),

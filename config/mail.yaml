@@ -2,3 +2,8 @@ mail:
   cooldown_sec: 60
   max_consecutive_fails: 3
   retryable_status_codes: [429, 500, 502, 503, 504]
+  http_timeout_sec: 15
+  wait_timeout_sec: 120
+  poll_interval_sec: 5
+  max_retries: 3
+  retry_max_delay_sec: 30

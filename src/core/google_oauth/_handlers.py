@@ -19,10 +19,10 @@ from playwright.async_api import (
 from ._constants import (
     AUTHENTICATOR_CLICK_LOCATORS,
     CONSENT_BUTTON_LOCATORS,
-    LOGIN_TIMEOUT_MS,
     PHONE_CLICK_LOCATORS,
     TOTP_INPUT_LOCATORS,
     TRY_ANOTHER_WAY_LOCATORS,
+    get_login_timeout_ms,
 )
 from ._helpers import LogFn, dump_page_html, emit_log, safe_wait, short_url
 
@@ -39,7 +39,7 @@ async def handle_login_email(
 ) -> None:
     """Nhập email và click Next."""
     email_input = page.locator('input[type="email"]')
-    await email_input.wait_for(state="visible", timeout=LOGIN_TIMEOUT_MS)
+    await email_input.wait_for(state="visible", timeout=get_login_timeout_ms())
     await email_input.fill(email)
     next_btn = page.locator(
         "#identifierNext button, "

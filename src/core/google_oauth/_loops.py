@@ -15,7 +15,7 @@ from playwright.async_api import (
 )
 
 from ..enums import GooglePageState
-from ._constants import LOGIN_TIMEOUT_MS, POPUP_CLOSE_TIMEOUT_MS
+from ._constants import get_login_timeout_ms, get_popup_close_timeout_ms
 from ._detect import detect_page_state
 from ._handlers import (
     handle_account_chooser,
@@ -40,7 +40,7 @@ async def handle_oauth_popup(
     password: str = "",
     totp_secret: str = "",
     db_path: pathlib.Path | None = None,
-    timeout_ms: int = POPUP_CLOSE_TIMEOUT_MS,
+    timeout_ms: int | None = None,
     log_fn: LogFn | None = None,
 ) -> None:
     """
@@ -52,10 +52,11 @@ async def handle_oauth_popup(
         if log_fn:
             log_fn(f"  [popup] {msg}")
 
+    _timeout_ms = timeout_ms if timeout_ms is not None else get_popup_close_timeout_ms()
     try:
-        await popup.wait_for_load_state("domcontentloaded", timeout=timeout_ms)
+        await popup.wait_for_load_state("domcontentloaded", timeout=_timeout_ms)
 
-        deadline = _time.monotonic() + (timeout_ms * 3 / 1000)
+        deadline = _time.monotonic() + (_timeout_ms * 3 / 1000)
         max_iterations = 30
         iteration = 0
         resolved_phone: str = ""
@@ -68,7 +69,7 @@ async def handle_oauth_popup(
 
             if _time.monotonic() > deadline:
                 await dump_page_html(popup, "popup_deadline_timeout", log_fn)
-                raise RuntimeError(f"OAuth popup không hoàn tất sau {timeout_ms * 3}ms")
+                raise RuntimeError(f"OAuth popup không hoàn tất sau {_timeout_ms * 3}ms")
 
             state = await detect_page_state(popup)
             _emit(f"[iter={iteration}] state={state.value}, url={short_url(popup.url)}")
@@ -224,7 +225,7 @@ async def login_google_on_page(
 
     await page.wait_for_url(
         lambda url: "accounts.google.com" in url,
-        timeout=LOGIN_TIMEOUT_MS, wait_until="commit",
+        timeout=get_login_timeout_ms(), wait_until="commit",
     )
     await page.wait_for_load_state("domcontentloaded")
 
