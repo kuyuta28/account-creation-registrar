@@ -12,7 +12,7 @@ from playwright.async_api import (
     TimeoutError as PlaywrightTimeoutError,
 )
 
-from ..enums import GooglePageState
+from common.enums import GooglePageState
 from ._constants import CONSENT_BUTTON_LOCATORS, TOTP_INPUT_LOCATORS
 from ._helpers import short_url
 

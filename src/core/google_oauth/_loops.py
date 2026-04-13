@@ -14,7 +14,7 @@ from playwright.async_api import (
     TimeoutError as PlaywrightTimeoutError,
 )
 
-from ..enums import GooglePageState
+from common.enums import GooglePageState
 from ._constants import get_login_timeout_ms, get_popup_close_timeout_ms
 from ._detect import detect_page_state
 from ._handlers import (

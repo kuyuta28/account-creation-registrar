@@ -9,6 +9,9 @@ from pathlib import Path
 
 import uvicorn
 
+# Inject common package vào sys.path
+sys.path.insert(0, str(Path(__file__).parent.parent / "common" / "src"))
+
 # Thêm zc-zhangchen/any-auto-register vào sys.path để dùng trực tiếp
 _zc_path = Path(__file__).parent / "any-auto-register"
 if _zc_path.exists():
