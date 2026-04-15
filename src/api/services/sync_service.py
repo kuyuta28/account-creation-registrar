@@ -19,13 +19,20 @@ from src.core.storage import db_path
 
 _log = logging.getLogger(__name__)
 
-_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-_OLLAMA_BASE_URL = "https://ollama.com/v1"
-
 
 def _db_path():
     """Lazy: Đọc db_path từ config mỗi lần gọi — không chạy tại import time."""
     return db_path(load_config().base_dir)
+
+
+def _or_base_url():
+    """Lazy: Đọc OpenRouter base URL từ config."""
+    return load_config().cliproxy_sync.openrouter_base_url
+
+
+def _ollama_base_url():
+    """Lazy: Đọc Ollama base URL từ config."""
+    return load_config().cliproxy_sync.ollama_base_url
 
 
 async def sync_openrouter_to_cliproxy() -> dict[str, Any]:
@@ -48,19 +55,20 @@ async def sync_openrouter_to_cliproxy() -> dict[str, Any]:
     if not db_keys:
         return {"added": 0, "total": 0, "message": "no active OPENROUTER keys in DB"}
 
-    async with httpx.AsyncClient(timeout=10) as client:
+    or_base = _or_base_url()
+    async with httpx.AsyncClient(timeout=cfg.cliproxy_sync.http_timeout_sec) as client:
         get_resp = await client.get(api_url, headers=headers)
         get_resp.raise_for_status()
         compat_list: list = get_resp.json().get("openai-compatibility") or []
 
         or_entry = next(
-            (e for e in compat_list if str(e.get("base-url", "")).rstrip("/") == _OPENROUTER_BASE_URL),
+            (e for e in compat_list if str(e.get("base-url", "")).rstrip("/") == or_base),
             None,
         )
         if or_entry is None:
             or_entry = {
                 "name": "openrouter",
-                "base-url": _OPENROUTER_BASE_URL,
+                "base-url": or_base,
                 "api-key-entries": [],
                 "models": [],
             }
@@ -105,19 +113,20 @@ async def sync_ollama_to_cliproxy() -> dict[str, Any]:
     if not db_keys:
         return {"added": 0, "total": 0, "message": "no active OLLAMA keys in DB"}
 
-    async with httpx.AsyncClient(timeout=10) as client:
+    ollama_base = _ollama_base_url()
+    async with httpx.AsyncClient(timeout=cfg.cliproxy_sync.http_timeout_sec) as client:
         get_resp = await client.get(api_url, headers=headers)
         get_resp.raise_for_status()
         compat_list: list = get_resp.json().get("openai-compatibility") or []
 
         entry = next(
-            (e for e in compat_list if str(e.get("base-url", "")).rstrip("/") == _OLLAMA_BASE_URL),
+            (e for e in compat_list if str(e.get("base-url", "")).rstrip("/") == ollama_base),
             None,
         )
         if entry is None:
             entry = {
                 "name": "ollama",
-                "base-url": _OLLAMA_BASE_URL,
+                "base-url": ollama_base,
                 "api-key-entries": [],
                 "models": [],
             }

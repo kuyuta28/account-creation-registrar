@@ -21,7 +21,7 @@ from collections.abc import Sequence
 
 
 from ._base import (
-    MAIL_TM_BASES, LogFn, MailCfg, Mailbox, _tprint,
+    get_mail_tm_bases, LogFn, MailCfg, Mailbox, _tprint,
     provider_display_name, provider_kind,
     _DEFAULT_COOLDOWN_SEC, _DEFAULT_MAX_CONSECUTIVE_FAILS,
 )
@@ -82,7 +82,7 @@ _round_robin_counter = itertools.count()
 
 
 def _normalize_providers(providers: Sequence[str] | None) -> tuple[str, ...]:
-    source = MAIL_TM_BASES if providers is None else providers
+    source = get_mail_tm_bases() if providers is None else providers
     items = tuple(str(p).rstrip("/") for p in source if str(p).strip())
     unique = tuple(dict.fromkeys(items))
     if not unique:

@@ -29,7 +29,11 @@ from ..services.account_service import list_accounts
 
 router = APIRouter(prefix="/aa", tags=["aa-proxy"])
 
-_AA_BASE = "https://artificialanalysis.ai"
+
+def _aa_cfg():
+    """Lazily load AA config — tránh circular import."""
+    from ...config.settings import load_config
+    return load_config().artificialanalysis
 
 
 def _models_file() -> Path:
@@ -37,13 +41,16 @@ def _models_file() -> Path:
     from ...config.settings import load_config
     return load_config().base_dir / "data" / "aa_models.json"
 
-_HEADERS = {
-    "Accept": "application/json, text/plain, */*",
-    "Content-Type": "application/json",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-    "Origin": "https://artificialanalysis.ai",
-    "Referer": "https://artificialanalysis.ai/image/image-lab",
-}
+
+def _build_headers() -> dict:
+    cfg = _aa_cfg()
+    return {
+        "Accept": "application/json, text/plain, */*",
+        "Content-Type": "application/json",
+        "User-Agent": cfg.user_agent,
+        "Origin": cfg.base_url,
+        "Referer": cfg.image_lab_url,
+    }
 
 
 def _get_session_cookie(session_state: str) -> str:
@@ -61,12 +68,13 @@ def _build_cookies(session_state: str) -> dict:
 
 
 async def _aa_get(path: str, cookies: dict) -> Any:
+    cfg = _aa_cfg()
     async with httpx.AsyncClient() as client:
         r = await client.get(
-            f"{_AA_BASE}{path}",
+            f"{cfg.base_url}{path}",
             cookies=cookies,
-            headers=_HEADERS,
-            timeout=30,
+            headers=_build_headers(),
+            timeout=cfg.check_timeout_sec * 2,
         )
     if r.status_code == 401:
         raise AppError(ErrorCode.SESSION_EXPIRED, "Session AA hết hạn hoặc không hợp lệ", 401)
@@ -76,11 +84,12 @@ async def _aa_get(path: str, cookies: dict) -> Any:
 
 
 async def _aa_post(path: str, cookies: dict, body: dict) -> Any:
+    cfg = _aa_cfg()
     async with httpx.AsyncClient() as client:
         r = await client.post(
-            f"{_AA_BASE}{path}",
+            f"{cfg.base_url}{path}",
             cookies=cookies,
-            headers=_HEADERS,
+            headers=_build_headers(),
             json=body,
             timeout=60,
         )
@@ -240,11 +249,12 @@ async def generate_images(body: GenerateBody):
     }
 
     # AA returns text/event-stream — collect full SSE text then parse
+    cfg = _aa_cfg()
     async with httpx.AsyncClient(follow_redirects=True) as client:
         r = await client.post(
-            f"{_AA_BASE}/api/playground/generations",
+            f"{cfg.base_url}/api/playground/generations",
             cookies=cookies,
-            headers=_HEADERS,
+            headers=_build_headers(),
             json=payload,
             timeout=120,
         )
@@ -614,13 +624,14 @@ async def batch_accept_terms(all: bool = False):
             "results": [],
         })
 
-    _AA_TERMS_URL = "https://artificialanalysis.ai/api/playground/terms-acceptance"
+    aa_cfg = _aa_cfg()
+    _AA_TERMS_URL = aa_cfg.terms_acceptance_url
     _TERMS_HEADERS = {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "Origin": "https://artificialanalysis.ai",
-        "Referer": "https://artificialanalysis.ai/image/image-lab",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0",
+        "Origin": aa_cfg.base_url,
+        "Referer": aa_cfg.image_lab_url,
+        "User-Agent": aa_cfg.user_agent,
     }
     sem = asyncio.Semaphore(20)
 
@@ -640,7 +651,7 @@ async def batch_accept_terms(all: bool = False):
                     cookies=cookies,
                     headers=_TERMS_HEADERS,
                     content=b"{}",
-                    timeout=15,
+                    timeout=aa_cfg.check_timeout_sec,
                 )
                 if r.status_code not in (200, 201):
                     raise RuntimeError(f"HTTP {r.status_code}: {r.text[:100]}")

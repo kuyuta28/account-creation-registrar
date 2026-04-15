@@ -1,0 +1,4 @@
+mailosaur:
+  signup_url: "https://mailosaur.com/app/signup"
+  keys_url: "https://mailosaur.com/app/keys"
+  keys_page_timeout_ms: 30000

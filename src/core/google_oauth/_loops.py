@@ -15,7 +15,7 @@ from playwright.async_api import (
 )
 
 from common.enums import GooglePageState
-from ._constants import get_login_timeout_ms, get_popup_close_timeout_ms
+from ._constants import get_login_timeout_ms, get_popup_close_timeout_ms, _cfg
 from ._detect import detect_page_state
 from ._handlers import (
     handle_account_chooser,
@@ -54,10 +54,11 @@ async def handle_oauth_popup(
 
     _timeout_ms = timeout_ms if timeout_ms is not None else get_popup_close_timeout_ms()
     try:
+        cfg = _cfg()
         await popup.wait_for_load_state("domcontentloaded", timeout=_timeout_ms)
 
-        deadline = _time.monotonic() + (_timeout_ms * 3 / 1000)
-        max_iterations = 30
+        deadline = _time.monotonic() + (_timeout_ms * cfg.popup_deadline_multiplier / 1000)
+        max_iterations = cfg.popup_max_iterations
         iteration = 0
         resolved_phone: str = ""
 
@@ -77,7 +78,7 @@ async def handle_oauth_popup(
             if state == GooglePageState.DONE:
                 _emit("DONE — waiting for popup to close...")
                 try:
-                    await popup.wait_for_event("close", timeout=15_000)
+                    await popup.wait_for_event("close", timeout=cfg.popup_close_event_timeout_ms)
                     _emit("popup closed ✓")
                 except PlaywrightTimeoutError:
                     if popup.is_closed():
@@ -91,23 +92,23 @@ async def handle_oauth_popup(
                     try:
                         await popup.wait_for_url(
                             lambda u: "accounts.google.com" in u,
-                            timeout=15_000,
+                            timeout=cfg.auth_handler_redirect_timeout_ms,
                             wait_until="commit",
                         )
                         _emit(f"Redirected to Google: {short_url(popup.url)}")
                     except PlaywrightTimeoutError:
                         await dump_page_html(popup, "auth_handler_no_redirect", log_fn)
                         raise RuntimeError(
-                            "Auth handler không redirect sang Google sau 15s"
+                            f"Auth handler không redirect sang Google sau {cfg.auth_handler_redirect_timeout_ms // 1000}s"
                         )
                     continue
                 _emit("Auth handler — waiting for close...")
                 try:
-                    await popup.wait_for_event("close", timeout=15_000)
+                    await popup.wait_for_event("close", timeout=cfg.popup_close_event_timeout_ms)
                     _emit("popup closed ✓")
                     break
                 except PlaywrightTimeoutError:
-                    _emit("popup chưa đóng sau 15s, re-checking state...")
+                    _emit("popup chưa đóng, re-checking state...")
                     continue
 
             if state == GooglePageState.ACCOUNT_CHOOSER:
@@ -174,7 +175,7 @@ async def handle_oauth_popup(
                 try:
                     await popup.locator(
                         'input[type="password"]:not([name="hiddenPassword"])'
-                    ).first.wait_for(state="visible", timeout=10_000)
+                    ).first.wait_for(state="visible", timeout=cfg.password_visible_timeout_ms)
                 except PlaywrightTimeoutError:
                     pass
                 continue
@@ -187,7 +188,7 @@ async def handle_oauth_popup(
                     )
                 _emit("Login password → typing...")
                 await handle_login_password(popup, password, log_fn)
-                await wait_url_change(popup, timeout_ms=5_000)
+                await wait_url_change(popup, timeout_ms=cfg.password_next_timeout_ms)
                 continue
 
         if popup.is_closed():
@@ -229,7 +230,8 @@ async def login_google_on_page(
     )
     await page.wait_for_load_state("domcontentloaded")
 
-    max_iterations = 20
+    cfg = _cfg()
+    max_iterations = cfg.login_max_iterations
     iteration = 0
     resolved_phone: str = ""
 
@@ -248,7 +250,7 @@ async def login_google_on_page(
             try:
                 await page.locator(
                     'input[type="password"]:not([name="hiddenPassword"])'
-                ).first.wait_for(state="visible", timeout=10_000)
+                ).first.wait_for(state="visible", timeout=cfg.password_visible_timeout_ms)
             except PlaywrightTimeoutError:
                 pass
             continue
@@ -256,7 +258,7 @@ async def login_google_on_page(
         if state == GooglePageState.LOGIN_PASSWORD:
             _emit("→ Handling LOGIN_PASSWORD")
             await handle_login_password(page, password, log_fn)
-            await wait_url_change(page, timeout_ms=5_000)
+            await wait_url_change(page, timeout_ms=cfg.password_next_timeout_ms)
             _emit(f"After password → url={short_url(page.url)}")
             continue
 

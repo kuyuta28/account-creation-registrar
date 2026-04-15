@@ -1,4 +1,6 @@
 testmail:
+  signup_url: "https://testmail.app/signup/"
+  console_url: "https://testmail.app/console/"
   otp_wait_sec: 30
   otp_poll_interval: 5
   max_retries: 3

@@ -226,11 +226,12 @@ async def _navigate_magic_link(page: Any, link: str, timeout_ms: int, log_fn: Lo
     raise RuntimeError(f"Still on auth page after magic link (30s). URL: {page.url}")
 
 
-async def _enable_privacy_options(page: Any, timeout_ms: int, log_fn: LogFn, debug_dir: Path) -> None:
+async def _enable_privacy_options(page: Any, timeout_ms: int, log_fn: LogFn, debug_dir: Path, or_cfg: Any = None) -> None:
     """Bật privacy toggles trên /settings/privacy."""
+    _privacy_url = or_cfg.privacy_settings_url if or_cfg else "https://openrouter.ai/settings/privacy"
     log_fn("  Navigating to /settings/privacy...")
     await page.goto(
-        "https://openrouter.ai/settings/privacy",
+        _privacy_url,
         timeout=timeout_ms * 2,
         wait_until="domcontentloaded",
     )
@@ -276,11 +277,12 @@ async def _enable_privacy_options(page: Any, timeout_ms: int, log_fn: LogFn, deb
     await _dump_debug_html(page, "openrouter_privacy_done.html", debug_dir)
 
 
-async def _create_api_key(page: Any, timeout_ms: int, log_fn: LogFn, debug_dir: Path) -> str:
+async def _create_api_key(page: Any, timeout_ms: int, log_fn: LogFn, debug_dir: Path, or_cfg: Any = None) -> str:
     try:
+        _keys_url = or_cfg.keys_settings_url if or_cfg else "https://openrouter.ai/settings/keys"
         log_fn("  Navigating to /settings/keys...")
         await page.goto(
-            "https://openrouter.ai/settings/keys",
+            _keys_url,
             timeout=timeout_ms * 2,
             wait_until="domcontentloaded",
         )
@@ -393,10 +395,10 @@ async def _signup_flow(
     log_fn(f"  Logged in -> {page.url}")
 
     log_fn("\n[7/8] Enabling privacy options...")
-    await _enable_privacy_options(page, t.page_load, log_fn, debug_dir)
+    await _enable_privacy_options(page, t.page_load, log_fn, debug_dir, or_cfg)
 
     log_fn("\n[8/8] Creating API key...")
-    api_key = await _create_api_key(page, t.page_load, log_fn, cfg.base_dir / "debug")
+    api_key = await _create_api_key(page, t.page_load, log_fn, cfg.base_dir / "debug", or_cfg)
 
     return AccountRecord(
         service="OPENROUTER",

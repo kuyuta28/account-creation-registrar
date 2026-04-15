@@ -6,6 +6,7 @@ Tất cả imports từ code ngoài phải dùng:
 """
 from __future__ import annotations
 
+from ._engine import _engines, _get_engine  # noqa: F401
 from ._migrations import init_db
 from ._services import (
     add_service,

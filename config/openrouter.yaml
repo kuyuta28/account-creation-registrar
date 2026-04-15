@@ -11,3 +11,14 @@ openrouter:
   chat_completions_url: "https://openrouter.ai/api/v1/chat/completions"
   privacy_check_model: "minimax/minimax-m2.5:free"
   check_timeout_sec: 15
+
+  # Check-and-clean
+  base_api_url: "https://openrouter.ai/api/v1"
+  sign_in_url: "https://openrouter.ai/sign-in"
+  privacy_settings_url: "https://openrouter.ai/settings/privacy"
+  keys_settings_url: "https://openrouter.ai/settings/keys"
+  check_clean_model: "minimax/minimax-m2.5:free"
+  check_clean_max_tokens: 5
+  check_clean_timeout_sec: 20
+  login_poll_interval_ms: 1000
+  privacy_toggle_wait_ms: 600

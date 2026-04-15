@@ -177,12 +177,13 @@ def export_openrouter_key(repo: Repo, record: AccountRecord) -> None:
         management_url=repo.cliproxy_sync.management_url,
         management_key=repo.cliproxy_sync.management_key,
         name="openrouter",
-        base_url="https://openrouter.ai/api/v1",
+        base_url=repo.cliproxy_sync.openrouter_base_url,
         api_key=record.api_key,
+        http_timeout=repo.cliproxy_sync.http_timeout_sec,
     )
 
 
-def _sync_compat_key(management_url: str, management_key: str, name: str, base_url: str, api_key: str) -> None:
+def _sync_compat_key(management_url: str, management_key: str, name: str, base_url: str, api_key: str, http_timeout: int = 10) -> None:
     """Shared helper: upsert 1 api-key vào openai-compatibility entry trên CLIProxyAPI."""
     import httpx
 
@@ -190,7 +191,7 @@ def _sync_compat_key(management_url: str, management_key: str, name: str, base_u
     base_url_clean = base_url.rstrip("/")
     headers = {"Authorization": f"Bearer {management_key}"}
 
-    with httpx.Client(timeout=10) as client:
+    with httpx.Client(timeout=http_timeout) as client:
         resp = client.get(endpoint, headers=headers)
         resp.raise_for_status()
         compat_list: list = resp.json().get("openai-compatibility") or []
@@ -228,8 +229,9 @@ def export_ollama_key(repo: Repo, record: AccountRecord) -> None:
         management_url=repo.cliproxy_sync.management_url,
         management_key=repo.cliproxy_sync.management_key,
         name="ollama",
-        base_url="https://ollama.com/v1",
+        base_url=repo.cliproxy_sync.ollama_base_url,
         api_key=record.api_key,
+        http_timeout=repo.cliproxy_sync.http_timeout_sec,
     )
 
 

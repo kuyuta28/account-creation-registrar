@@ -265,12 +265,12 @@ async def relogin_artificialanalysis(
             "Kiểm tra bảng mail_providers."
         )
 
-    from ...mail._base import TESTMAIL_BASE, Mailbox as _Mailbox
+    from ...mail._base import get_testmail_base, Mailbox as _Mailbox
     mailbox = _Mailbox(
         email=email,
         token=namespace,
         account_id=tag,
-        base_url=TESTMAIL_BASE,
+        base_url=get_testmail_base(),
         provider="testmail.app",
         api_key=api_key,
     )

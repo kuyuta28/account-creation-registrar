@@ -4,3 +4,9 @@ klingai:
   session_dir: "data/kling_sessions"
   login_timeout_sec: 180
   post_login_wait_ms: 2000
+  refresh_start_url: "https://app.klingai.com/global/"
+  refresh_target_url: "https://app.klingai.com/global/text-to-image/creation"
+  refresh_start_timeout_ms: 60000
+  refresh_target_timeout_ms: 30000
+  refresh_start_wait_ms: 5000
+  refresh_target_wait_ms: 3000

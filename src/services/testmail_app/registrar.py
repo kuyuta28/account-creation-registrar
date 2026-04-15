@@ -33,10 +33,14 @@ from ..protocols import LogFn, SaveFn
 
 _LOG = logging.getLogger(__name__)
 
-# ── Constants ─────────────────────────────────────────────────────────
+# ── Config-driven URLs ──────────────────────────────────────────────────
 
-_SIGNUP_URL = "https://testmail.app/signup/"
-_CONSOLE_URL = "https://testmail.app/console/"
+def _signup_url(cfg: AppConfig) -> str:
+    return cfg.testmail.signup_url
+
+def _console_url() -> str:
+    from ...config.settings import load_config
+    return load_config().testmail.console_url
 
 
 # ── Pure helpers ──────────────────────────────────────────────────────
@@ -155,7 +159,7 @@ async def _fill_verification_and_confirm(page: Page, code: str) -> None:
 
 async def _extract_console_credentials(page: Page, debug_dir: Path, log_fn: LogFn) -> tuple[str, str]:
     """Navigate /console/ → extract namespace + API key."""
-    await page.goto(_CONSOLE_URL, wait_until="networkidle", timeout=30000)
+    await page.goto(_console_url(), wait_until="networkidle", timeout=30000)
     await asyncio.sleep(2)
     await _dump_debug(page, "testmail_console.html", debug_dir)
 
@@ -196,8 +200,8 @@ async def _signup_flow(
     debug_dir = cfg.base_dir / "debug"
     otp_timeout = cfg.testmail.otp_wait_sec
 
-    log_fn(f"\n[1/5] Opening {_SIGNUP_URL}...")
-    await page.goto(_SIGNUP_URL, wait_until="networkidle", timeout=30000)
+    log_fn(f"\n[1/5] Opening {_signup_url(cfg)}...")
+    await page.goto(_signup_url(cfg), wait_until="networkidle", timeout=30000)
     await asyncio.sleep(1)
     await _dump_debug(page, "testmail_01_signup.html", debug_dir)
 

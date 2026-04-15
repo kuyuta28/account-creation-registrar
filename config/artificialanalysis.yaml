@@ -3,3 +3,8 @@ artificialanalysis:
   app_url_contains: artificialanalysis.ai
   magic_link_wait_sec: 30
   post_submit_wait_ms: 3000
+  base_url: "https://artificialanalysis.ai"
+  image_lab_url: "https://artificialanalysis.ai/image/image-lab"
+  terms_acceptance_url: "https://artificialanalysis.ai/api/playground/terms-acceptance"
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
+  check_timeout_sec: 15

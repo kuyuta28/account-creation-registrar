@@ -184,15 +184,16 @@ async def _check_aa_session(account: dict[str, Any], cfg: Any, now: str) -> dict
         })
         return {"valid": False, "check_status": check_status, "last_checked": now, "last_error": "no session_state"}
 
-    from ...api.routers.aa_proxy import _build_cookies, _HEADERS, _AA_BASE
+    from ...api.routers.aa_proxy import _build_cookies, _build_headers, _aa_cfg
     cookies = _build_cookies(session_state)
+    aa_cfg = _aa_cfg()
 
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with httpx.AsyncClient(timeout=aa_cfg.check_timeout_sec) as client:
             r = await client.get(
-                f"{_AA_BASE}/api/auth/get-session",
+                f"{aa_cfg.base_url}/api/auth/get-session",
                 cookies=cookies,
-                headers=_HEADERS,
+                headers=_build_headers(),
             )
 
         body = r.json() if r.status_code == 200 else None
@@ -291,7 +292,8 @@ async def start_batch_check(service: str | None = None) -> dict[str, Any]:
         _batch["errors"] = 0
         _batch["results"] = []
 
-    _sem = asyncio.Semaphore(10)
+    cfg = load_config()
+    _sem = asyncio.Semaphore(cfg.checker.batch_concurrency)
 
     async def _check_one(acc: dict[str, Any]) -> None:
         email = acc["email"]
@@ -422,18 +424,16 @@ _clean_or_batch: dict[str, Any] = {
     "ok": 0, "deleted_db": 0, "deleted_cliproxy": 0,
 }
 
-_MINIMAX_MODEL = "minimax/minimax-m2.5:free"
-_OR_CHAT_API   = "https://openrouter.ai/api/v1/chat/completions"
-
 
 async def _test_or_key(api_key: str, semaphore: asyncio.Semaphore) -> bool:
     import httpx
+    cfg = load_config()
     async with semaphore:
         try:
-            async with httpx.AsyncClient(timeout=20) as c:
+            async with httpx.AsyncClient(timeout=cfg.openrouter.check_clean_timeout_sec) as c:
                 r = await c.post(
-                    _OR_CHAT_API,
-                    json={"model": _MINIMAX_MODEL, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 5},
+                    cfg.openrouter.chat_completions_url,
+                    json={"model": cfg.openrouter.check_clean_model, "messages": [{"role": "user", "content": "hi"}], "max_tokens": cfg.openrouter.check_clean_max_tokens},
                     headers={"Authorization": f"Bearer {api_key}"},
                 )
             return r.status_code == 200
@@ -447,7 +447,7 @@ async def _run_check_and_clean_or(accounts: list[dict[str, Any]]) -> None:
 
     cfg = load_config()
     db = _db_path()
-    sem = asyncio.Semaphore(20)
+    sem = asyncio.Semaphore(cfg.checker.check_and_clean_concurrency)
 
     results: list[dict] = []
 
@@ -523,16 +523,16 @@ _fix_privacy_batch: dict[str, Any] = {
     "ok": 0, "failed": 0, "skipped": 0,
 }
 
-_OR_SIGN_IN_URL = "https://openrouter.ai/sign-in"
-_OR_PRIVACY_URL = "https://openrouter.ai/settings/privacy"
-_ZDR_KEYWORDS   = ("zdr", "zero data retention")
+_ZDR_KEYWORDS = ("zdr", "zero data retention")
 
 
 async def _fix_privacy_one(page: Any, email: str, password: str, debug_dir: Path) -> dict:
     from common.page_utils import dump_debug_html as _dump
 
+    cfg = load_config()
+
     # Login
-    await page.goto(_OR_SIGN_IN_URL, timeout=60_000, wait_until="domcontentloaded")
+    await page.goto(cfg.openrouter.sign_in_url, timeout=60_000, wait_until="domcontentloaded")
     await page.wait_for_timeout(3_000)
     await page.locator("input[name=identifier]").fill(email)
     await page.wait_for_timeout(300)
@@ -550,19 +550,19 @@ async def _fix_privacy_one(page: Any, email: str, password: str, debug_dir: Path
     await page.wait_for_timeout(4_000)
 
     logged_in = False
-    for _ in range(20):
+    for _ in range(cfg.google_oauth.login_max_iterations):
         url = page.url.lower()
         if "openrouter.ai" in url and "sign-in" not in url and "clerk." not in url:
             logged_in = True
             break
-        await page.wait_for_timeout(1_000)
+        await page.wait_for_timeout(cfg.openrouter.login_poll_interval_ms)
 
     if not logged_in:
         await _dump(page, "fix_privacy_login_fail.html", debug_dir)
         return {"status": "login_failed"}
 
     # Fix toggles
-    await page.goto(_OR_PRIVACY_URL, timeout=60_000, wait_until="domcontentloaded")
+    await page.goto(cfg.openrouter.privacy_settings_url, timeout=60_000, wait_until="domcontentloaded")
     await page.wait_for_timeout(2_000)
     toggles = page.locator('button[role="switch"]')
     count = await toggles.count()
@@ -575,7 +575,7 @@ async def _fix_privacy_one(page: Any, email: str, password: str, debug_dir: Path
             continue
         if state != "checked":
             await toggle.click()
-            await page.wait_for_timeout(600)
+            await page.wait_for_timeout(cfg.openrouter.privacy_toggle_wait_ms)
             enabled += 1
     return {"status": "ok", "enabled": enabled}
 
@@ -584,7 +584,7 @@ async def _run_fix_or_privacy(accounts: list[dict[str, Any]]) -> None:
     from common.browser import open_browser
 
     cfg = load_config()
-    sem = asyncio.Semaphore(3)
+    sem = asyncio.Semaphore(cfg.checker.fix_privacy_concurrency)
 
     async def _process(acc: dict) -> None:
         email = acc["email"]
@@ -665,10 +665,10 @@ async def refresh_kling_session(email: str) -> dict[str, Any]:
     async with open_browser(cfg) as browser:
         ctx = await browser.new_context(storage_state=storage_state)
         page = await ctx.new_page()
-        await page.goto("https://app.klingai.com/global/", wait_until="commit", timeout=60_000)
-        await page.wait_for_timeout(5_000)
-        await page.goto("https://app.klingai.com/global/text-to-image/creation", wait_until="commit", timeout=30_000)
-        await page.wait_for_timeout(3_000)
+        await page.goto(cfg.klingai.refresh_start_url, wait_until="commit", timeout=cfg.klingai.refresh_start_timeout_ms)
+        await page.wait_for_timeout(cfg.klingai.refresh_start_wait_ms)
+        await page.goto(cfg.klingai.refresh_target_url, wait_until="commit", timeout=cfg.klingai.refresh_target_timeout_ms)
+        await page.wait_for_timeout(cfg.klingai.refresh_target_wait_ms)
         new_state = await ctx.storage_state()
         await ctx.close()
 

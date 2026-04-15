@@ -35,9 +35,19 @@ from src.core.storage import AccountRecord
 from ...mail.client import Mailbox, create_mailbox, wait_for_message
 from ..protocols import LogFn, SaveFn
 
-# ── Constants ─────────────────────────────────────────────────────────
+# ── Config-driven URLs ──────────────────────────────────────────────────
 
-_SIGNUP_URL = "https://mailosaur.com/app/signup"
+def _mailosaur_cfg():
+    from ...config.settings import load_config
+    return load_config().mailosaur
+
+def _signup_url(cfg=None) -> str:
+    return cfg.mailosaur.signup_url if cfg else _mailosaur_cfg().signup_url
+
+_KEYS_URL = "https://mailosaur.com/app/keys"  # used by _extract_api_key
+_KEYS_TIMEOUT_MS = 30000
+
+
 _NAMES = [
     ("Alex", "Morgan"), ("Jordan", "Taylor"), ("Casey", "Riley"),
     ("Morgan", "Quinn"), ("Taylor", "Avery"), ("Chris", "Bailey"),
@@ -143,7 +153,7 @@ async def _extract_api_key(page: Page, debug_dir, log_fn: LogFn) -> str:
     Navigate tới /app/keys → tạo standard key → lấy API key từ dialog.
     """
     log_fn("  Navigating to API keys page...")
-    await page.goto("https://mailosaur.com/app/keys", wait_until="domcontentloaded", timeout=30000)
+    await page.goto(_KEYS_URL, wait_until="domcontentloaded", timeout=_KEYS_TIMEOUT_MS)
     await page.wait_for_timeout(3000)
     await _dump_debug(page, "msr_09_api_keys_page.html", debug_dir)
 
@@ -224,8 +234,8 @@ async def _signup_flow(
     debug_dir = cfg.base_dir / "debug"
     otp_timeout = cfg.testmail.otp_wait_sec  # reuse testmail config (same timeout)
 
-    log_fn(f"\n[1/9] Mở {_SIGNUP_URL}...")
-    await page.goto(_SIGNUP_URL, wait_until="domcontentloaded", timeout=30000)
+    log_fn(f"\n[1/9] Mở {_signup_url(cfg)}...")
+    await page.goto(_signup_url(cfg), wait_until="domcontentloaded", timeout=30000)
     await page.wait_for_timeout(3000)
     await _dump_debug(page, "msr_01_signup.html", debug_dir)
 

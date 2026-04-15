@@ -28,3 +28,8 @@ chatgpt:
   birthyear_max: 1999
   birthyear_alt_min: 1975
   birthyear_alt_max: 1998
+
+  # Batch concurrency
+  batch_concurrency: 10
+  confirm_rounds: 5
+  token_expiry_buffer_sec: 300

@@ -22,6 +22,8 @@ class TimeoutConfig:
     nav_delay: int = 2_000
     sign_in_delay: int = 3_000
     batch_delay_sec: int = 5
+    probe_timeout_ms: int = 3_000
+    popup_close_probe_ms: int = 2_000
 
 
 @dataclass(frozen=True)
@@ -119,6 +121,10 @@ class ChatGPTConfig:
     birthyear_max: int = 1999
     birthyear_alt_min: int = 1975
     birthyear_alt_max: int = 1998
+    # Batch concurrency
+    batch_concurrency: int = 10
+    confirm_rounds: int = 5
+    token_expiry_buffer_sec: int = 300
 
 
 @dataclass(frozen=True)
@@ -139,6 +145,19 @@ class KlingAIConfig:
     session_dir: str = "data/kling_sessions"
     login_timeout_sec: int = 180
     post_login_wait_ms: int = 2_000
+    refresh_start_url: str = "https://app.klingai.com/global/"
+    refresh_target_url: str = "https://app.klingai.com/global/text-to-image/creation"
+    refresh_start_timeout_ms: int = 60_000
+    refresh_target_timeout_ms: int = 30_000
+    refresh_start_wait_ms: int = 5_000
+    refresh_target_wait_ms: int = 3_000
+
+
+@dataclass(frozen=True)
+class MailosaurConfig:
+    signup_url: str = "https://mailosaur.com/app/signup"
+    keys_url: str = "https://mailosaur.com/app/keys"
+    keys_page_timeout_ms: int = 30_000
 
 
 @dataclass(frozen=True)
@@ -153,6 +172,8 @@ class TwoSlidesConfig:
 
 @dataclass(frozen=True)
 class TestmailConfig:
+    signup_url: str = "https://testmail.app/signup/"
+    console_url: str = "https://testmail.app/console/"
     otp_wait_sec: int = 90
     otp_poll_interval: int = 5
     max_retries: int = 3
@@ -169,6 +190,15 @@ class MailConfig:
     poll_interval_sec: int = 5
     max_retries: int = 3
     retry_max_delay_sec: int = 30
+    mail_tm_bases: tuple[str, ...] = field(default_factory=lambda: ("https://api.mail.tm",))
+    mailslurp_base_url: str = "https://api.mailslurp.com"
+    testmail_base_url: str = "https://api.testmail.app"
+    mailosaur_base_url: str = "https://mailosaur.com/api"
+    guerrillamail_base_url: str = "https://www.guerrillamail.com/ajax.php"
+    gmail_base_url: str = "https://mail.google.com"
+    gmail_inbox_url: str = "https://mail.google.com/mail/u/0/#inbox"
+    gmail_search_url_template: str = "https://mail.google.com/mail/u/0/#search/{query}"
+    sms_store_cap: int = 500
 
 
 @dataclass(frozen=True)
@@ -177,6 +207,28 @@ class GoogleOAuthConfig:
     myaccount_url: str = "https://myaccount.google.com"
     login_timeout_ms: int = 60_000
     popup_close_timeout_ms: int = 30_000
+    password_visible_timeout_ms: int = 15_000
+    password_next_timeout_ms: int = 10_000
+    account_chooser_timeout_ms: int = 5_000
+    account_chooser_click_timeout_ms: int = 15_000
+    consent_timeout_ms: int = 8_000
+    phone_input_timeout_ms: int = 10_000
+    phone_send_timeout_ms: int = 5_000
+    otp_input_timeout_ms: int = 10_000
+    otp_next_timeout_ms: int = 5_000
+    totp_candidate_timeout_ms: int = 8_000
+    totp_next_timeout_ms: int = 5_000
+    page_load_timeout_ms: int = 10_000
+    authenticator_probe_timeout_ms: int = 3_000
+    phone_probe_timeout_ms: int = 3_000
+    try_another_way_timeout_ms: int = 8_000
+    popup_close_event_timeout_ms: int = 15_000
+    auth_handler_redirect_timeout_ms: int = 15_000
+    sms_otp_timeout_sec: int = 300
+    sms_otp_poll_interval_sec: int = 3
+    popup_max_iterations: int = 30
+    login_max_iterations: int = 20
+    popup_deadline_multiplier: int = 3
 
     @property
     def all_providers(self) -> tuple[str, ...]:
@@ -247,6 +299,9 @@ class ClipRoxySyncConfig:
     management_key: str = field(
         default_factory=lambda: os.getenv("CLIPROXY_MANAGEMENT_KEY", "ccs")
     )
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    ollama_base_url: str = "https://ollama.com/v1"
+    http_timeout_sec: int = 10
 
 
 @dataclass(frozen=True)
@@ -288,6 +343,11 @@ class ArtificialAnalysisConfig:
     app_url_contains: str = "artificialanalysis.ai"
     magic_link_wait_sec: int = 120
     post_submit_wait_ms: int = 3_000
+    base_url: str = "https://artificialanalysis.ai"
+    image_lab_url: str = "https://artificialanalysis.ai/image/image-lab"
+    terms_acceptance_url: str = "https://artificialanalysis.ai/api/playground/terms-acceptance"
+    user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
+    check_timeout_sec: int = 15
 
 
 @dataclass(frozen=True)
@@ -329,6 +389,39 @@ class OpenRouterConfig:
     chat_completions_url: str = "https://openrouter.ai/api/v1/chat/completions"
     privacy_check_model: str = "minimax/minimax-m2.5:free"
     check_timeout_sec: int = 15
+    # Check-and-clean
+    base_api_url: str = "https://openrouter.ai/api/v1"
+    sign_in_url: str = "https://openrouter.ai/sign-in"
+    privacy_settings_url: str = "https://openrouter.ai/settings/privacy"
+    keys_settings_url: str = "https://openrouter.ai/settings/keys"
+    check_clean_model: str = "minimax/minimax-m2.5:free"
+    check_clean_max_tokens: int = 5
+    check_clean_timeout_sec: int = 20
+    login_poll_interval_ms: int = 1_000
+    privacy_toggle_wait_ms: int = 600
+
+
+@dataclass(frozen=True)
+class AarConfig:
+    base_url: str = "http://localhost:8080"
+    platforms_timeout_sec: int = 5
+    create_task_timeout_sec: int = 30
+    snapshot_timeout_sec: int = 10
+    cancel_timeout_sec: int = 10
+
+
+@dataclass(frozen=True)
+class CheckerConfig:
+    batch_concurrency: int = 10
+    check_and_clean_concurrency: int = 20
+    fix_privacy_concurrency: int = 3
+
+
+@dataclass(frozen=True)
+class DatabaseConfig:
+    busy_timeout_ms: int = 5000
+    retry_max_retries: int = 3
+    retry_base_delay_sec: float = 0.1
 
 
 @dataclass(frozen=True)
@@ -351,12 +444,16 @@ class AppConfig:
     leonardo: LeonardoConfig = field(default_factory=LeonardoConfig)
     klingai: KlingAIConfig = field(default_factory=KlingAIConfig)
     twoslides: TwoSlidesConfig = field(default_factory=TwoSlidesConfig)
+    mailosaur: MailosaurConfig = field(default_factory=MailosaurConfig)
     testmail: TestmailConfig = field(default_factory=TestmailConfig)
     mail: MailConfig = field(default_factory=MailConfig)
     google_oauth: GoogleOAuthConfig = field(default_factory=GoogleOAuthConfig)
     auth_sync: AuthSyncConfig = field(default_factory=AuthSyncConfig)
     cliproxy_sync: ClipRoxySyncConfig = field(default_factory=ClipRoxySyncConfig)
     sentry: SentryConfig = field(default_factory=SentryConfig)
+    aar: AarConfig = field(default_factory=AarConfig)
+    checker: CheckerConfig = field(default_factory=CheckerConfig)
+    database: DatabaseConfig = field(default_factory=DatabaseConfig)
     proxy: ProxyConfig | None = None
     base_dir: Path = field(default_factory=lambda: Path(__file__).parent.parent.parent)
 
@@ -517,6 +614,15 @@ def _parse_mail(raw: dict, db_path: Path) -> MailConfig:
         poll_interval_sec=int(raw.get("poll_interval_sec", 5)),
         max_retries=int(raw.get("max_retries", 3)),
         retry_max_delay_sec=int(raw.get("retry_max_delay_sec", 30)),
+        mail_tm_bases=tuple(str(b) for b in raw.get("mail_tm_bases", ("https://api.mail.tm",))),
+        mailslurp_base_url=str(raw.get("mailslurp_base_url", "https://api.mailslurp.com")),
+        testmail_base_url=str(raw.get("testmail_base_url", "https://api.testmail.app")),
+        mailosaur_base_url=str(raw.get("mailosaur_base_url", "https://mailosaur.com/api")),
+        guerrillamail_base_url=str(raw.get("guerrillamail_base_url", "https://www.guerrillamail.com/ajax.php")),
+        gmail_base_url=str(raw.get("gmail_base_url", "https://mail.google.com")),
+        gmail_inbox_url=str(raw.get("gmail_inbox_url", "https://mail.google.com/mail/u/0/#inbox")),
+        gmail_search_url_template=str(raw.get("gmail_search_url_template", "https://mail.google.com/mail/u/0/#search/{query}")),
+        sms_store_cap=int(raw.get("sms_store_cap", 500)),
     )
 
 
@@ -537,6 +643,7 @@ _CONFIG_FILES = (
     "leonardo.yaml",
     "klingai.yaml",
     "twoslides.yaml",
+    "mailosaur.yaml",
     "testmail.yaml",
     "artificialanalysis.yaml",
     "sentry.yaml",
@@ -561,6 +668,30 @@ def _parse_registration(raw: dict) -> RegistrationConfig:
 
 def _parse_api(raw: dict) -> ApiConfig:
     return _parse_section_strict(ApiConfig, raw, "api")
+
+
+def _parse_aar(raw: dict | None) -> AarConfig:
+    if not raw:
+        return AarConfig()
+    return _parse_section_strict(AarConfig, raw, "aar")
+
+
+def _parse_checker(raw: dict | None) -> CheckerConfig:
+    if not raw:
+        return CheckerConfig()
+    return _parse_section_strict(CheckerConfig, raw, "checker")
+
+
+def _parse_mailosaur(raw: dict | None) -> MailosaurConfig:
+    if not raw:
+        return MailosaurConfig()
+    return _parse_section_strict(MailosaurConfig, raw, "mailosaur")
+
+
+def _parse_database(raw: dict | None) -> DatabaseConfig:
+    if not raw:
+        return DatabaseConfig()
+    return _parse_section_strict(DatabaseConfig, raw, "database")
 
 
 def load_config(path: Path | None = None) -> AppConfig:
@@ -592,12 +723,16 @@ def load_config(path: Path | None = None) -> AppConfig:
         leonardo=_parse_section_strict(LeonardoConfig, _require_section(raw, "leonardo"), "leonardo"),
         klingai=_parse_section_strict(KlingAIConfig, _require_section(raw, "klingai"), "klingai"),
         twoslides=_parse_section_strict(TwoSlidesConfig, _require_section(raw, "twoslides"), "twoslides"),
+        mailosaur=_parse_mailosaur(raw.get("mailosaur")),
         testmail=_parse_section_strict(TestmailConfig, _require_section(raw, "testmail"), "testmail"),
         mail=_parse_mail(_require_section(raw, "mail"), db_path),
         google_oauth=_parse_section_strict(GoogleOAuthConfig, _require_section(raw, "google_oauth"), "google_oauth"),
         auth_sync=_parse_auth_sync(_require_section(raw, "auth_sync")),
         cliproxy_sync=_parse_cliproxy_sync(_require_section(raw, "cliproxy_sync")),
         sentry=_parse_section_strict(SentryConfig, _require_section(raw, "sentry"), "sentry"),
+        aar=_parse_aar(raw.get("aar")),
+        checker=_parse_checker(raw.get("checker")),
+        database=_parse_database(raw.get("database")),
         proxy=_parse_proxy(raw.get("proxy", {})),
         base_dir=base_dir,
     )

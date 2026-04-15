@@ -216,10 +216,32 @@ class _MailboxServiceBlock(_Base):
 
 _engines: dict[str, Engine] = {}
 
+_DEFAULT_PRAGMAS: dict[str, str] = {
+    "journal_mode": "WAL",
+    "busy_timeout": "5000",
+    "synchronous": "NORMAL",
+    "foreign_keys": "ON",
+}
 
-def _get_engine(db_path: Path) -> Engine:
+
+def _db_cfg():
+    """Lazily load database config."""
+    from ...config.settings import load_config
+    return load_config().database
+
+
+def _get_engine(db_path: Path, pragmas: dict[str, str] | None = None) -> Engine:
     key = str(db_path.resolve())
     if key not in _engines:
+        db_cfg = _db_cfg()
+        # Merge defaults with config-driven busy_timeout
+        cfg_pragmas = {
+            "journal_mode": "WAL",
+            "busy_timeout": str(db_cfg.busy_timeout_ms),
+            "synchronous": "NORMAL",
+            "foreign_keys": "ON",
+        }
+        _pragmas = {**cfg_pragmas, **(pragmas or {})}
         engine = create_engine(
             f"sqlite:///{key}",
             connect_args={"check_same_thread": False},
@@ -228,17 +250,19 @@ def _get_engine(db_path: Path) -> Engine:
 
         @event.listens_for(engine, "connect")
         def _set_pragmas(dbapi_conn, _record):
-            dbapi_conn.execute("PRAGMA journal_mode=WAL")
-            dbapi_conn.execute("PRAGMA busy_timeout=5000")
-            dbapi_conn.execute("PRAGMA synchronous=NORMAL")
-            dbapi_conn.execute("PRAGMA foreign_keys=ON")
+            for _name, _value in _pragmas.items():
+                dbapi_conn.execute(f"PRAGMA {_name}={_value}")
 
         _engines[key] = engine
     return _engines[key]
 
 
-def _retry_db_op(fn, *, max_retries=3, base_delay=0.1):
+def _retry_db_op(fn, *, max_retries=None, base_delay=None):
     """Retry DB operation on 'database is locked' errors."""
+    if max_retries is None or base_delay is None:
+        db_cfg = _db_cfg()
+        max_retries = max_retries if max_retries is not None else db_cfg.retry_max_retries
+        base_delay = base_delay if base_delay is not None else db_cfg.retry_base_delay_sec
     for attempt in range(max_retries):
         try:
             return fn()

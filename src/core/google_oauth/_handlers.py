@@ -23,6 +23,7 @@ from ._constants import (
     TOTP_INPUT_LOCATORS,
     TRY_ANOTHER_WAY_LOCATORS,
     get_login_timeout_ms,
+    _cfg,
 )
 from ._helpers import LogFn, dump_page_html, emit_log, safe_wait, short_url
 
@@ -54,15 +55,16 @@ async def handle_login_password(
     page: Page, password: str, log_fn: LogFn | None = None,
 ) -> None:
     """Nhập password và click Next."""
+    cfg = _cfg()
     pwd_input = page.locator('input[type="password"]:not([name="hiddenPassword"])').first
-    await pwd_input.wait_for(state="visible", timeout=15_000)
+    await pwd_input.wait_for(state="visible", timeout=cfg.password_visible_timeout_ms)
     await pwd_input.fill(password)
     pwd_next = page.locator(
         "#passwordNext button, "
         "button:has-text('Next'), button:has-text('Tiep theo'), "
         "button:has-text('Tiếp theo')"
     )
-    await pwd_next.first.wait_for(state="visible", timeout=10_000)
+    await pwd_next.first.wait_for(state="visible", timeout=cfg.password_next_timeout_ms)
     await pwd_next.first.click()
     emit_log("Password filled → Next clicked", log_fn)
 
@@ -76,10 +78,11 @@ async def handle_account_chooser(
     page: Page, log_fn: LogFn | None = None,
 ) -> None:
     """Click account đầu tiên trong danh sách."""
+    cfg = _cfg()
     account_btn = page.locator('div[data-identifier][role="link"]').first
-    await account_btn.wait_for(state="visible", timeout=5_000)
+    await account_btn.wait_for(state="visible", timeout=cfg.account_chooser_timeout_ms)
     identifier = await account_btn.get_attribute("data-identifier")
-    await account_btn.click(timeout=15_000, force=True)
+    await account_btn.click(timeout=cfg.account_chooser_click_timeout_ms, force=True)
     emit_log(f"Account chooser → selected: {identifier}", log_fn)
     await safe_wait(page)
 
@@ -91,8 +94,9 @@ async def handle_consent(
     emit_log(f"Consent page detected. URL: {short_url(page.url)}", log_fn)
     await dump_page_html(page, "consent_page", log_fn)
     allow_btn = page.locator(CONSENT_BUTTON_LOCATORS)
+    cfg = _cfg()
     try:
-        await allow_btn.first.wait_for(state="visible", timeout=8_000)
+        await allow_btn.first.wait_for(state="visible", timeout=cfg.consent_timeout_ms)
         btn_text = await allow_btn.first.inner_text()
         emit_log(f"Consent → clicking button: {btn_text!r}", log_fn)
         await allow_btn.first.click(force=True)
@@ -197,8 +201,9 @@ async def handle_challenge_phone(
     resolved_phone = matched[0]
     emit_log(f"Resolved SIM: {resolved_phone!r}", log_fn)
 
+    cfg = _cfg()
     phone_input = page.locator('input#phoneNumberId, input[name="phoneNumber"], input[aria-label*="phone" i]')
-    await phone_input.first.wait_for(state="visible", timeout=10_000)
+    await phone_input.first.wait_for(state="visible", timeout=cfg.phone_input_timeout_ms)
     await phone_input.first.click(force=True)
     await page.wait_for_timeout(200)
     await phone_input.first.fill(resolved_phone)
@@ -207,7 +212,7 @@ async def handle_challenge_phone(
         'button:has-text("Send"), button:has-text("Gửi"), '
         'button[type="submit"]'
     )
-    await send_btn.first.wait_for(state="visible", timeout=5_000)
+    await send_btn.first.wait_for(state="visible", timeout=cfg.phone_send_timeout_ms)
     await send_btn.first.click(force=True)
     emit_log(f"Phone challenge → filled {resolved_phone!r}, clicked Send", log_fn)
     await safe_wait(page)
@@ -234,21 +239,22 @@ async def handle_challenge_phone_otp(
     from ...mail.providers.sms_webhook import make_mailbox, wait_for_message
 
     emit_log(f"Waiting for SMS OTP on {phone!r}...", log_fn)
+    cfg = _cfg()
     box = make_mailbox(phone)
     wait_start = _time.monotonic()
-    sms_timeout = 300
     msg = await wait_for_message(
         box,
         from_contains="",
         body_contains="",
-        timeout=sms_timeout,
-        poll_interval=3,
+        timeout=cfg.sms_otp_timeout_sec,
+        poll_interval=cfg.sms_otp_poll_interval_sec,
         after_monotonic=wait_start,
     )
 
     if msg is None:
+        cfg = _cfg()
         raise RuntimeError(
-            f"Timeout {sms_timeout}s chờ SMS OTP cho số {phone!r}. "
+            f"Timeout {cfg.sms_otp_timeout_sec}s chờ SMS OTP cho số {phone!r}. "
             "Kiểm tra API server đang chạy và SmsForwarder đã cấu hình đúng webhook."
         )
 
@@ -266,7 +272,8 @@ async def handle_challenge_phone_otp(
         'input[type="tel"], input[type="text"], '
         'input[aria-label*="code" i], input[aria-label*="verification" i]'
     )
-    await otp_input.first.wait_for(state="visible", timeout=10_000)
+    cfg2 = _cfg()
+    await otp_input.first.wait_for(state="visible", timeout=cfg2.otp_input_timeout_ms)
     await otp_input.first.click(force=True)
     await page.wait_for_timeout(200)
     await otp_input.first.fill(otp_code)
@@ -276,7 +283,7 @@ async def handle_challenge_phone_otp(
         'button:has-text("Verify"), button:has-text("Xác minh"), '
         'button[type="submit"]'
     )
-    await next_btn.first.wait_for(state="visible", timeout=5_000)
+    await next_btn.first.wait_for(state="visible", timeout=cfg2.otp_next_timeout_ms)
     await next_btn.first.click(force=True)
     emit_log(f"Phone OTP {otp_code} submitted → Next clicked", log_fn)
     await safe_wait(page)
@@ -310,11 +317,12 @@ async def handle_challenge_unknown(
 
 async def _fill_totp(page: Page, secret_clean: str, log_fn: LogFn | None = None) -> None:
     """Find TOTP input, fill OTP code, click Next."""
+    cfg = _cfg()
     totp_input = None
     for loc in TOTP_INPUT_LOCATORS:
         candidate = page.locator(loc)
         try:
-            await candidate.first.wait_for(state="visible", timeout=8_000)
+            await candidate.first.wait_for(state="visible", timeout=cfg.totp_candidate_timeout_ms)
             totp_input = candidate.first
             break
         except PlaywrightTimeoutError:
@@ -335,7 +343,7 @@ async def _fill_totp(page: Page, secret_clean: str, log_fn: LogFn | None = None)
         "button:has-text('Next'), button:has-text('Tiếp theo'), "
         "button:has-text('Verify'), button:has-text('Xác minh')"
     )
-    await next_btn.first.wait_for(state="visible", timeout=5_000)
+    await next_btn.first.wait_for(state="visible", timeout=cfg.totp_next_timeout_ms)
     await next_btn.first.click(force=True)
     emit_log(f"TOTP filled: {otp_code} → Next clicked", log_fn)
     await safe_wait(page)
@@ -343,11 +351,12 @@ async def _fill_totp(page: Page, secret_clean: str, log_fn: LogFn | None = None)
 
 async def _click_authenticator_option(page: Page, log_fn: LogFn | None = None) -> None:
     """Click 'Google Authenticator' trên trang challenge/selection."""
-    await page.wait_for_load_state("domcontentloaded", timeout=10_000)
+    cfg = _cfg()
+    await page.wait_for_load_state("domcontentloaded", timeout=cfg.page_load_timeout_ms)
     for loc_str in AUTHENTICATOR_CLICK_LOCATORS:
         candidate = page.locator(loc_str)
         try:
-            await candidate.first.wait_for(state="visible", timeout=3_000)
+            await candidate.first.wait_for(state="visible", timeout=cfg.authenticator_probe_timeout_ms)
             await candidate.first.click(force=True)
             emit_log(f"Đã click Authenticator via: {loc_str}", log_fn)
             return
@@ -359,11 +368,12 @@ async def _click_authenticator_option(page: Page, log_fn: LogFn | None = None) -
 
 async def _click_phone_option(page: Page, log_fn: LogFn | None = None) -> None:
     """Click phone/SMS option trên trang challenge/selection."""
-    await page.wait_for_load_state("domcontentloaded", timeout=10_000)
+    cfg = _cfg()
+    await page.wait_for_load_state("domcontentloaded", timeout=cfg.page_load_timeout_ms)
     for loc_str in PHONE_CLICK_LOCATORS:
         candidate = page.locator(loc_str)
         try:
-            await candidate.first.wait_for(state="visible", timeout=3_000)
+            await candidate.first.wait_for(state="visible", timeout=cfg.phone_probe_timeout_ms)
             await candidate.first.click(force=True)
             emit_log(f"Đã click Phone via: {loc_str}", log_fn)
             return
@@ -375,9 +385,10 @@ async def _click_phone_option(page: Page, log_fn: LogFn | None = None) -> None:
 
 async def _click_try_another_way(page: Page, log_fn: LogFn | None = None) -> None:
     """Click 'Try another way' → quay lại selection."""
+    cfg = _cfg()
     try_another = page.locator(TRY_ANOTHER_WAY_LOCATORS)
     try:
-        await try_another.first.wait_for(state="visible", timeout=8_000)
+        await try_another.first.wait_for(state="visible", timeout=cfg.try_another_way_timeout_ms)
         await try_another.first.click(force=True)
         emit_log("Clicked 'Try another way'", log_fn)
         await safe_wait(page)

@@ -24,13 +24,9 @@ def _tprint(msg: str) -> None:
 
 # ── Provider prefix constants ─────────────────────────────────────────────────
 
-MAIL_TM_BASES = ("https://api.mail.tm",)
-MAILSLURP_BASE = "https://api.mailslurp.com"
 MAILSLURP_PREFIX = "mailslurp.com:"
-TESTMAIL_BASE = "https://api.testmail.app"
 TESTMAIL_PREFIX = "testmail.app:"
 GUERRILLAMAIL_PREFIX = "guerrillamail.com"
-MAILOSAUR_BASE = "https://mailosaur.com/api"
 MAILOSAUR_PREFIX = "mailosaur.com:"
 GMAIL_PREFIX = "gmail.com"
 SMS_WEBHOOK_PREFIX = "sms.webhook:"
@@ -39,6 +35,44 @@ _RETRYABLE = {429, 500, 502, 503, 504}
 
 _DEFAULT_COOLDOWN_SEC = 120
 _DEFAULT_MAX_CONSECUTIVE_FAILS = 3
+
+
+def _mail_cfg():
+    """Lazily load mail config — tránh circular import."""
+    from ..config.settings import load_config
+    return load_config().mail
+
+
+def get_mail_tm_bases() -> tuple[str, ...]:
+    return _mail_cfg().mail_tm_bases
+
+
+def get_mailslurp_base() -> str:
+    return _mail_cfg().mailslurp_base_url
+
+
+def get_testmail_base() -> str:
+    return _mail_cfg().testmail_base_url
+
+
+def get_mailosaur_base() -> str:
+    return _mail_cfg().mailosaur_base_url
+
+
+def get_guerrillamail_base() -> str:
+    return _mail_cfg().guerrillamail_base_url
+
+
+def get_gmail_base() -> str:
+    return _mail_cfg().gmail_base_url
+
+
+def get_gmail_inbox_url() -> str:
+    return _mail_cfg().gmail_inbox_url
+
+
+def get_gmail_search_url_template() -> str:
+    return _mail_cfg().gmail_search_url_template
 
 
 # ── Dataclasses ───────────────────────────────────────────────────────────────

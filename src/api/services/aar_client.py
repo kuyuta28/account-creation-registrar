@@ -5,7 +5,6 @@ Platforms được delegate: chatgpt, trae, grok, kiro, openblocklabs
 (bất kỳ thứ gì any-auto-register hỗ trợ, tự detect qua /api/platforms)
 
 Public API:
-    AAR_BASE_URL              — str, configurable qua env AAR_BASE_URL
     aar_platforms()           — set[str] tên platform AAR hỗ trợ (uppercase)
     run_aar_job(...)          — chạy job trên AAR, stream log qua log_fn
 """
@@ -13,12 +12,21 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 from collections.abc import Callable
 
 import httpx
 
-AAR_BASE_URL: str = os.getenv("AAR_BASE_URL", "http://localhost:8080")
+from ...config.settings import load_config
+
+
+def _aar_cfg():
+    """Lazily load AAR config."""
+    return load_config().aar
+
+
+def _aar_base_url():
+    return _aar_cfg().base_url
+
 
 # Cache platform list để không fetch mỗi request
 _aar_platforms_cache: set[str] | None = None
@@ -28,10 +36,11 @@ _aar_platforms_lock = asyncio.Lock()
 async def aar_platforms() -> set[str]:
     """Trả set tên platform (UPPERCASE) mà any-auto-register hỗ trợ."""
     global _aar_platforms_cache
+    cfg = _aar_cfg()
     async with _aar_platforms_lock:
         if _aar_platforms_cache is None:
-            async with httpx.AsyncClient(timeout=5) as client:
-                r = await client.get(f"{AAR_BASE_URL}/api/platforms")
+            async with httpx.AsyncClient(timeout=cfg.platforms_timeout_sec) as client:
+                r = await client.get(f"{cfg.base_url}/api/platforms")
                 r.raise_for_status()
                 data = r.json()
                 _aar_platforms_cache = {p["name"].upper() for p in data}
@@ -51,6 +60,7 @@ async def run_aar_job(
     Tạo task trên any-auto-register, stream log về log_fn, trả về số acc tạo được.
     Ném ngoại lệ nếu AAR không response hoặc task failed.
     """
+    cfg = _aar_cfg()
     payload: dict = {
         "platform": platform.lower(),
         "count": count,
@@ -61,8 +71,8 @@ async def run_aar_job(
     if extra:
         payload["extra"] = extra
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.post(f"{AAR_BASE_URL}/api/tasks", json=payload)
+    async with httpx.AsyncClient(timeout=cfg.create_task_timeout_sec) as client:
+        r = await client.post(f"{cfg.base_url}/api/tasks", json=payload)
         r.raise_for_status()
         task_id: str = r.json()["task_id"]
 
@@ -75,7 +85,8 @@ async def run_aar_job(
 
 async def _stream_task(task_id: str, log_fn: Callable[[str], None]) -> int:
     """Stream SSE từ AAR task cho đến khi done/failed/stopped. Trả về created count."""
-    url = f"{AAR_BASE_URL}/api/tasks/{task_id}/logs/stream"
+    cfg = _aar_cfg()
+    url = f"{cfg.base_url}/api/tasks/{task_id}/logs/stream"
     since = 0
     created = 0
 
@@ -100,8 +111,8 @@ async def _stream_task(task_id: str, log_fn: Callable[[str], None]) -> int:
                     break
 
     # Lấy created count từ snapshot
-    async with httpx.AsyncClient(timeout=10) as client:
-        r = await client.get(f"{AAR_BASE_URL}/api/tasks/{task_id}")
+    async with httpx.AsyncClient(timeout=cfg.snapshot_timeout_sec) as client:
+        r = await client.get(f"{cfg.base_url}/api/tasks/{task_id}")
         r.raise_for_status()
         snap = r.json()
         created = snap.get("success_count", 0) or snap.get("created", 0)
@@ -110,5 +121,6 @@ async def _stream_task(task_id: str, log_fn: Callable[[str], None]) -> int:
 
 
 async def cancel_aar_task(task_id: str) -> None:
-    async with httpx.AsyncClient(timeout=10) as client:
-        await client.post(f"{AAR_BASE_URL}/api/tasks/{task_id}/stop")
+    cfg = _aar_cfg()
+    async with httpx.AsyncClient(timeout=cfg.cancel_timeout_sec) as client:
+        await client.post(f"{cfg.base_url}/api/tasks/{task_id}/stop")

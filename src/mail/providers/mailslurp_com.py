@@ -8,7 +8,7 @@ API:                    REST, x-api-key header, free tier 200 inbound/month per 
 from __future__ import annotations
 
 
-from .._base import MAILSLURP_BASE, MAILSLURP_PREFIX, LogFn, Mailbox, request_with_retry, _tprint
+from .._base import get_mailslurp_base, MAILSLURP_PREFIX, LogFn, Mailbox, request_with_retry, _tprint
 
 
 def _api_key(provider: str) -> str:
@@ -29,7 +29,7 @@ async def create_mailbox(provider: str, log_fn: LogFn | None = None) -> Mailbox:
     label = _label(api_key)
     response = await request_with_retry(
         "POST",
-        f"{MAILSLURP_BASE}/inboxes/withDefaults",
+        f"{get_mailslurp_base()}/inboxes/withDefaults",
         provider_name=label,
         max_retries=2,
         log_fn=log_fn,
@@ -43,7 +43,7 @@ async def create_mailbox(provider: str, log_fn: LogFn | None = None) -> Mailbox:
         email=data["emailAddress"],
         token="",
         account_id=data["id"],
-        base_url=MAILSLURP_BASE,
+        base_url=get_mailslurp_base(),
         provider="mailslurp.com",
         api_key=api_key,
     )
@@ -52,7 +52,7 @@ async def create_mailbox(provider: str, log_fn: LogFn | None = None) -> Mailbox:
 async def get_messages(box: Mailbox) -> list[dict]:
     response = await request_with_retry(
         "GET",
-        f"{MAILSLURP_BASE}/inboxes/{box.account_id}/emails",
+        f"{get_mailslurp_base()}/inboxes/{box.account_id}/emails",
         provider_name=_label(box.api_key),
         headers={"x-api-key": box.api_key},
         params={"sort": "DESC", "size": 20},
@@ -80,7 +80,7 @@ async def get_messages(box: Mailbox) -> list[dict]:
 async def get_message_body(box: Mailbox, message_id: str) -> str:
     response = await request_with_retry(
         "GET",
-        f"{MAILSLURP_BASE}/emails/{message_id}",
+        f"{get_mailslurp_base()}/emails/{message_id}",
         provider_name=_label(box.api_key),
         headers={"x-api-key": box.api_key},
         timeout=15,
@@ -109,7 +109,7 @@ async def wait_for_message(
     try:
         response = await request_with_retry(
             "GET",
-            f"{MAILSLURP_BASE}/waitForLatestEmail",
+            f"{get_mailslurp_base()}/waitForLatestEmail",
             provider_name=label,
             max_retries=1,
             log_fn=log_fn,

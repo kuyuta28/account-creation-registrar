@@ -449,10 +449,16 @@ def _migrate_to_cti(engine) -> None:
         raw.close()
 
 
-def init_db(db_path: Path) -> None:
-    """Tạo bảng + index nếu chưa có (idempotent). Chạy migrations theo thứ tự."""
+def init_db(db_path: Path, pragmas: dict[str, str] | None = None) -> None:
+    """Tạo bảng + index nếu chưa có (idempotent). Chạy migrations theo thứ tự.
+
+    Args:
+        db_path: Đường dẫn SQLite DB.
+        pragmas: Dict SQLite PRAGMA overrides (ví dụ: {"busy_timeout": "10000"}).
+            Keys merge với defaults (journal_mode=WAL, busy_timeout=5000, synchronous=NORMAL, foreign_keys=ON).
+    """
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    engine = _get_engine(db_path)
+    engine = _get_engine(db_path, pragmas=pragmas)
     _Base.metadata.create_all(engine)
     _migrate_columns(engine)
     _migrate_provider_domain(engine)
