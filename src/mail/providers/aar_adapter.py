@@ -1,4 +1,8 @@
-"""mail/providers/aar_adapter.py — Async adapter wrapping AAR's synchronous BaseMailbox providers.
+"""
+aar_adapter.py — Async HTTP adapter wrapping AAR's mailbox API (port 8080).
+
+Thay the `from core.base_mailbox import create_mailbox` truc tiep,
+bay gio goi qua HTTP den AAR service.
 
 Provider string format: "aar:{provider_name}" or "aar:{provider_name}:{base64_json_extra}"
 Examples:
@@ -6,28 +10,29 @@ Examples:
   "aar:moemail:{b64({"moemail_api_url": ...})}"  — with config
   "aar:cfworker:{b64({"cfworker_api_url": ..., "cfworker_admin_token": ...})}"
 
-Module-level state:
-  _aar_instances : email → (BaseMailbox, MailboxAccount)
-  _message_cache : "{email}:{msg_id}" → msg dict {id, subject, from_addr, body, html_body}
+Khong con co module-level state nua — state duoc quan ly boi AAR qua session_id.
 """
 from __future__ import annotations
 
-import asyncio
 import base64
 import json
-import time
-from typing import Any
+import httpx
 
 from .._base import LogFn, Mailbox, _tprint
 
 AAR_PREFIX = "aar:"
 
-# ── Module-level state ────────────────────────────────────────────────────────
-_aar_instances: dict[str, tuple[Any, Any]] = {}   # email → (BaseMailbox, MailboxAccount)
-_message_cache: dict[str, dict] = {}              # "{email}:{msg_id}" → msg dict
+# Default AAR base URL — override via config if needed
+DEFAULT_AAR_BASE_URL = "http://127.0.0.1:8080"
+
+
+def _get_aar_base_url() -> str:
+    """Lay AAR base URL. Can be overridden via env/config in production."""
+    return DEFAULT_AAR_BASE_URL
 
 
 # ── Provider string helpers ───────────────────────────────────────────────────
+
 
 def _parse_provider_str(provider_str: str) -> tuple[str, dict]:
     """Parse "aar:moemail" or "aar:moemail:{base64_json}" → (provider_name, extra_dict)."""
@@ -46,34 +51,42 @@ def _parse_provider_str(provider_str: str) -> tuple[str, dict]:
     return provider_name, extra
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
+# ── Public API ──────────────────────────────────────────────────────────────
+
 
 async def create_mailbox(
     provider_str: str,
     proxy: str | None = None,
     log_fn: LogFn | None = None,
 ) -> Mailbox:
-    """Create an AAR mailbox, register it in state, return project Mailbox."""
+    """Tao AAR mailbox qua HTTP, tra ve Mailbox voi session_id lam token."""
     _log = log_fn or _tprint
     aar_provider, extra = _parse_provider_str(provider_str)
 
-    loop = asyncio.get_event_loop()
+    base_url = _get_aar_base_url()
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(
+            f"{base_url}/api/mailbox/create",
+            json={
+                "provider": aar_provider,
+                "extra": extra,
+                "proxy": proxy,
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
 
-    def _create_sync():
-        from core.base_mailbox import create_mailbox as aar_factory
-        box = aar_factory(aar_provider, extra, proxy)
-        account = box.get_email()
-        return box, account
+    session_id = data["session_id"]
+    email = data["email"]
+    account_id = data["account_id"]
 
-    box, account = await loop.run_in_executor(None, _create_sync)
-    _aar_instances[account.email] = (box, account)
-    _log(f"Temp mail (aar:{aar_provider}): {account.email}")
+    _log(f"Temp mail (aar:{aar_provider}): {email}")
 
     return Mailbox(
-        email=account.email,
-        token=account.account_id,
-        account_id=account.account_id,
-        base_url="",
+        email=email,
+        token=session_id,  # session_id is our handle to AAR
+        account_id=account_id,
+        base_url=base_url,
         provider=provider_str,
     )
 
@@ -86,72 +99,65 @@ async def wait_for_message(
     poll_interval: int = 3,
     log_fn: LogFn | None = None,
 ) -> dict | None:
-    """Poll for a new message matching filters. Caches body for get_message_body()."""
+    """Poll for a new message matching filters."""
     _log = log_fn or _tprint
-    entry = _aar_instances.get(box.email)
-    if entry is None:
-        raise RuntimeError(f"No AAR mailbox instance found for {box.email!r}")
 
-    aar_box, account = entry
-    loop = asyncio.get_event_loop()
+    keyword = from_contains or subject_contains
 
-    known_ids: set[str] = await loop.run_in_executor(
-        None, aar_box.get_current_ids, account
-    )
-
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        frozen_ids = frozenset(known_ids)
-
-        def _fetch_sync(fids=frozen_ids):
-            return aar_box.fetch_new_messages(account, set(fids))
-
-        new_msgs: list[dict] = await loop.run_in_executor(None, _fetch_sync)
-
-        for msg in new_msgs:
-            mid = msg.get("id", "")
-            if mid:
-                known_ids.add(mid)
-
-            subject = msg.get("subject", "")
-            from_addr = msg.get("from_addr", "")
-
-            if from_contains and from_contains.lower() not in from_addr.lower():
-                _log(f"  [aar] skip msg id={mid!r} from={from_addr!r} (want {from_contains!r})")
-                continue
-            if subject_contains and subject_contains.lower() not in subject.lower():
-                _log(f"  [aar] skip msg id={mid!r} subject={subject!r} (want {subject_contains!r})")
-                continue
-
-            # Cache full message for get_message_body()
-            cache_key = f"{box.email}:{mid}"
-            _message_cache[cache_key] = msg
-            _log(f"  [aar] got message id={mid!r} subject={subject!r}")
-
-            return {"id": mid, "subject": subject, "from": from_addr}
-
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            break
-        await asyncio.sleep(min(float(poll_interval), remaining))
-
-    return None
+    base_url = box.base_url or _get_aar_base_url()
+    async with httpx.AsyncClient(timeout=timeout + 10.0) as client:
+        try:
+            resp = await client.post(
+                f"{base_url}/api/mailbox/wait-code",
+                json={
+                    "session_id": box.token,
+                    "keyword": keyword,
+                    "timeout": timeout,
+                    "poll_interval": poll_interval,
+                },
+            )
+            if resp.status_code == 408:
+                _log(f"  [aar] timeout waiting for code ({timeout}s)")
+                return None
+            resp.raise_for_status()
+            data = resp.json()
+            _log(f"  [aar] got message id={data['message_id']} subject={data['subject']!r}")
+            return {
+                "id": data["message_id"],
+                "subject": data["subject"],
+                "from": data["from_addr"],
+            }
+        except httpx.TimeoutException:
+            _log(f"  [aar] timeout waiting for code ({timeout}s)")
+            return None
 
 
 async def get_message_body(box: Mailbox, message_id: str) -> str:
-    """Return cached message body (HTML preferred, fallback to text)."""
-    cache_key = f"{box.email}:{message_id}"
-    msg = _message_cache.get(cache_key)
-    if msg is None:
-        return ""
-    return msg.get("html_body", "") or msg.get("body", "")
+    """Lay message body tu AAR cache."""
+    base_url = box.base_url or _get_aar_base_url()
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.get(
+            f"{base_url}/api/mailbox/message",
+            params={"session_id": box.token, "message_id": message_id},
+        )
+        if resp.status_code == 404:
+            return ""
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("body", "")
 
 
 async def get_messages(box: Mailbox) -> list[dict]:
-    """Return all cached messages for this mailbox."""
-    prefix = f"{box.email}:"
-    return [
-        {"id": key[len(prefix):], **msg}
-        for key, msg in _message_cache.items()
-        if key.startswith(prefix)
-    ]
+    """Lay tat ca messages tu AAR cache."""
+    base_url = box.base_url or _get_aar_base_url()
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.get(
+            f"{base_url}/api/mailbox/messages",
+            params={"session_id": box.token},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return [
+            {"id": m["message_id"], **m}
+            for m in data.get("messages", [])
+        ]
