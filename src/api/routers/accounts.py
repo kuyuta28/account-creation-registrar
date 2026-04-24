@@ -103,8 +103,21 @@ async def del_service(name: str):
 
 
 @router.get("")
-async def get_accounts(service: str | None = None):
-    return ok(await list_accounts(service))
+async def get_accounts(service: str | None = None, page: int | None = None, limit: int | None = None):
+    # Defaults
+    if limit is None:
+        limit = 100
+    if page is None:
+        page = 1
+    offset = (page - 1) * limit
+    result = await list_accounts(service, limit=limit, offset=offset)
+    return ok({
+        "accounts": result["accounts"],
+        "total": result["total"],
+        "page": page,
+        "limit": limit,
+        "pages": (result["total"] + limit - 1) // limit if limit > 0 else 0,
+    })
 
 
 # ── Specific routes MUST come BEFORE greedy /{service}/{email:path} ──

@@ -82,12 +82,29 @@ async def internal_update_account(
 @router.get("/accounts")
 async def internal_list_accounts(
     service: str | None = None,
+    page: int | None = None,
+    limit: int | None = None,
     _key: str = Depends(_require_internal_key),
 ):
-    """List accounts, optionally filtered by service. Used by AA-Proxy and Mail-Service."""
+    """List accounts with pagination. Used by UI and other services."""
     from ..services.account_service import list_accounts as _list
-    accounts = await _list(service)
-    return ok(accounts)
+
+    # Defaults: page=1, limit=100
+    if limit is None:
+        limit = 100
+    if page is None:
+        page = 1
+
+    offset = (page - 1) * limit
+    result = await _list(service, limit=limit, offset=offset)
+
+    return ok({
+        "accounts": result["accounts"],
+        "total": result["total"],
+        "page": page,
+        "limit": limit,
+        "pages": (result["total"] + limit - 1) // limit if limit > 0 else 0,
+    })
 
 
 @router.delete("/accounts/{service}/{email}")

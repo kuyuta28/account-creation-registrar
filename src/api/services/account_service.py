@@ -23,6 +23,7 @@ from common.database._async import (
     service_exists_async,
     get_accounts_async,
     upsert_mailbox_async,
+    count_accounts_async,
 )
 from common.database._engine import init_async_db, get_async_session
 
@@ -32,10 +33,29 @@ if _db_url:
     init_async_db(_db_url)
 
 
-async def list_accounts(service: str | None = None) -> list[dict[str, Any]]:
+async def list_accounts(
+    service: str | None = None,
+    limit: int | None = None,
+    offset: int | None = None,
+) -> dict[str, Any]:
+    """List accounts with pagination support.
+
+    Returns:
+        dict with:
+          - accounts: list of account dicts
+          - total: total count
+          - limit: page size
+          - offset: current offset
+    """
     async with get_async_session() as session:
-        accounts = await get_accounts_async(session, service)
-        return [a for a in accounts if a.get("service") != "GMAIL"]
+        accounts = await get_accounts_async(session, service, limit=limit, offset=offset, exclude_service="GMAIL")
+        total = await count_accounts_async(session, service, exclude_service="GMAIL")
+        return {
+            "accounts": accounts,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
 
 
 async def list_services() -> list[str]:
