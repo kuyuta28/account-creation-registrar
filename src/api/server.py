@@ -21,11 +21,14 @@ from .exceptions import (
     http_exception_handler,
     validation_error_handler,
 )
-from .routers import accounts, aa_proxy, config, gmail, image_lab, mailbox, providers, registration, sms
+from .routers import accounts, aa_proxy, config, gmail, image_lab, internal, mailbox, providers, registration, sms
 from .schemas import ok
 from .ws.log_manager import get_bus, set_event_loop
 from common.logger import install_tee
 from common.sentry import init_sentry
+from common.database._engine import init_async_db
+from common.middleware import add_request_id_middleware, add_tracing_middleware
+from common.tracing import init_tracing
 from ..config.settings import load_config, seed_mail_providers
 
 # CORS origins: load từ config, có thể override qua API_CORS_ORIGINS (CSV)
@@ -43,6 +46,9 @@ async def _lifespan(app: FastAPI):
     _cfg = load_config()
     install_tee(_cfg.base_dir, _cfg.log.all_log)
     init_sentry(_cfg.sentry)
+    # Init async PostgreSQL if database_url configured
+    if _cfg.database.database_url:
+        init_async_db(_cfg.database.database_url)
     seed_mail_providers(_cfg)
     set_event_loop(get_bus(), asyncio.get_running_loop())
     yield
@@ -71,6 +77,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Tracing & Request ID ──────────────────────────────────────────────────────
+add_request_id_middleware(app)
+add_tracing_middleware(app)
+init_tracing("registrar")
+
 # ── Routers ───────────────────────────────────────────────────────────────────
 _V1 = "/api/v1"
 app.include_router(accounts.router,     prefix=_V1)
@@ -82,6 +93,7 @@ app.include_router(image_lab.router,    prefix=_V1)
 app.include_router(aa_proxy.router,     prefix=_V1)
 app.include_router(gmail.router,        prefix=_V1)
 app.include_router(sms.router,          prefix=_V1)
+app.include_router(internal.router,    prefix=_V1)
 
 
 @app.get("/api/v1/health", tags=["system"])

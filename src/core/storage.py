@@ -194,7 +194,9 @@ def _sync_compat_key(management_url: str, management_key: str, name: str, base_u
     with httpx.Client(timeout=http_timeout) as client:
         resp = client.get(endpoint, headers=headers)
         resp.raise_for_status()
-        compat_list: list = resp.json().get("openai-compatibility") or []
+        raw = resp.json()
+        # Handle both dict wrapper and direct list response
+        compat_list: list = raw.get("openai-compatibility") if isinstance(raw, dict) else raw if isinstance(raw, list) else []
 
         entry = next(
             (e for e in compat_list if str(e.get("base-url", "")).rstrip("/") == base_url_clean),

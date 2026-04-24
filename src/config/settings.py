@@ -5,7 +5,7 @@ Single Responsibility: owns config shape and loading logic only.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, MISSING
 from pathlib import Path
 
 import yaml
@@ -161,16 +161,6 @@ class MailosaurConfig:
 
 
 @dataclass(frozen=True)
-class TwoSlidesConfig:
-    login_url: str = "https://2slides.com/login"
-    api_url: str = "https://2slides.com/api"
-    app_url_contains: str = "2slides.com"
-    otp_wait_sec: int = 120
-    otp_poll_interval: int = 4
-    post_submit_wait_ms: int = 3_000
-
-
-@dataclass(frozen=True)
 class TestmailConfig:
     signup_url: str = "https://testmail.app/signup/"
     console_url: str = "https://testmail.app/console/"
@@ -199,6 +189,18 @@ class MailConfig:
     gmail_inbox_url: str = "https://mail.google.com/mail/u/0/#inbox"
     gmail_search_url_template: str = "https://mail.google.com/mail/u/0/#search/{query}"
     sms_store_cap: int = 500
+
+    def providers_for(self, service: str = "") -> tuple[str, ...]:
+        """Query DB cho active mail providers. service='' → tất cả. Trả tuple rỗng nếu không có."""
+        from common.database import get_mail_providers
+        try:
+            rows = get_mail_providers(
+                self.db_path,
+                service_tag=service.lower() if service else None,
+            )
+        except Exception:
+            return ()
+        return tuple(r["connection_str"] for r in rows)
 
 
 @dataclass(frozen=True)
@@ -237,10 +239,13 @@ class GoogleOAuthConfig:
     def providers_for(self, service: str = "") -> tuple[str, ...]:
         """Query DB cho active mail providers. service='' → tất cả. Trả tuple rỗng nếu không có."""
         from common.database import get_mail_providers
-        rows = get_mail_providers(
-            self.db_path,
-            service_tag=service.lower() if service else None,
-        )
+        try:
+            rows = get_mail_providers(
+                self.db_path,
+                service_tag=service.lower() if service else None,
+            )
+        except Exception:
+            return ()
         return tuple(r["connection_str"] for r in rows)
 
 
@@ -302,6 +307,8 @@ class ClipRoxySyncConfig:
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     ollama_base_url: str = "https://ollama.com/v1"
     http_timeout_sec: int = 10
+    # 9router db.json path - tùy chỉnh cho sync Ollama
+    ninerouter_db_path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -422,6 +429,11 @@ class DatabaseConfig:
     busy_timeout_ms: int = 5000
     retry_max_retries: int = 3
     retry_base_delay_sec: float = 0.1
+    # Environment: dev|prod|test. Defaults to APP_ENV or "prod".
+    env: str = ""
+    # PostgreSQL connection URL. If set, uses async PostgreSQL instead of SQLite.
+    # Format: postgresql+asyncpg://user:pass@host:port/dbname
+    database_url: str = field(default_factory=lambda: os.getenv("DATABASE_URL", ""))
 
 
 @dataclass(frozen=True)
@@ -443,7 +455,6 @@ class AppConfig:
     gmail_variations: GmailVariationsConfig = field(default_factory=GmailVariationsConfig)
     leonardo: LeonardoConfig = field(default_factory=LeonardoConfig)
     klingai: KlingAIConfig = field(default_factory=KlingAIConfig)
-    twoslides: TwoSlidesConfig = field(default_factory=TwoSlidesConfig)
     mailosaur: MailosaurConfig = field(default_factory=MailosaurConfig)
     testmail: TestmailConfig = field(default_factory=TestmailConfig)
     mail: MailConfig = field(default_factory=MailConfig)
@@ -473,6 +484,12 @@ class AppConfig:
     def log_file(self) -> Path:
         return self.base_dir / self.log.file.path
 
+    def init_async_db(self) -> None:
+        """Initialize async PostgreSQL connection if database_url is set."""
+        if self.database.database_url:
+            from common.database._engine import init_async_db
+            init_async_db(self.database.database_url)
+
 
 def _strict(section: dict, key: str, section_name: str):
     """Lấy giá trị từ dict — thiếu key thì raise ngay, không fallback."""
@@ -484,19 +501,22 @@ def _strict(section: dict, key: str, section_name: str):
 
 
 def _require_section(raw: dict, name: str) -> dict:
-    """Require a top-level section in merged config. Raise nếu thiếu."""
-    section = raw.get(name)
-    if section is None:
-        raise KeyError(f"Missing required section '{name}' in config YAML files")
-    return section
+    """Get a top-level section from merged config. Return empty dict if missing."""
+    return raw.get(name) or {}
 
 
 def _parse_section_strict(cls, raw: dict, section_name: str):
-    """Parse a config section — BẮT BUỘC tất cả fields trong dataclass phải có trong YAML.
-    Tự động convert list→tuple và str→Path nếu cần."""
+    """Parse a config section — validate required fields, use defaults for optional.
+
+    Fields with defaults are optional (use default if missing).
+    Fields without defaults are required.
+    """
     kwargs = {}
     for key, fld in cls.__dataclass_fields__.items():
         if key not in raw:
+            if fld.default is not MISSING or fld.default_factory is not MISSING:
+                # Has default → optional, skip
+                continue
             raise KeyError(
                 f"Missing required config key '{key}' in section '{section_name}'"
             )
@@ -514,38 +534,18 @@ def _parse_log(raw: dict) -> LogConfig:
     if not raw:
         raise KeyError("Missing 'log' section in config. Check config/logging.yaml")
 
-    console_raw = raw.get("console")
-    if console_raw is None:
-        raise KeyError("Missing 'log.console' section in config/logging.yaml")
-    file_raw = raw.get("file")
-    if file_raw is None:
-        raise KeyError("Missing 'log.file' section in config/logging.yaml")
-    all_log_raw = raw.get("all_log")
-    if all_log_raw is None:
-        raise KeyError("Missing 'log.all_log' section in config/logging.yaml")
+    console_raw = raw.get("console") or {}
+    file_raw = raw.get("file") or {}
+    all_log_raw = raw.get("all_log") or {}
 
-    console = LogConsoleConfig(
-        enabled=bool(_strict(console_raw, "enabled", "log.console")),
-        level=str(_strict(console_raw, "level", "log.console")),
-        format=str(_strict(console_raw, "format", "log.console")),
-    )
-    file_cfg = LogFileConfig(
-        enabled=bool(_strict(file_raw, "enabled", "log.file")),
-        level=str(_strict(file_raw, "level", "log.file")),
-        path=str(_strict(file_raw, "path", "log.file")),
-        format=str(_strict(file_raw, "format", "log.file")),
-        date_format=str(_strict(file_raw, "date_format", "log.file")),
-        max_bytes=int(_strict(file_raw, "max_bytes", "log.file")),
-        backup_count=int(_strict(file_raw, "backup_count", "log.file")),
-    )
-    all_log = AllLogConfig(
-        enabled=bool(_strict(all_log_raw, "enabled", "log.all_log")),
-        path=str(_strict(all_log_raw, "path", "log.all_log")),
-        append=bool(_strict(all_log_raw, "append", "log.all_log")),
-    )
+    console = _parse_section_strict(LogConsoleConfig, console_raw, "log.console")
+    file_cfg = _parse_section_strict(LogFileConfig, file_raw, "log.file")
+    all_log = _parse_section_strict(AllLogConfig, all_log_raw, "log.all_log")
+
+    # Build LogConfig with parsed nested objects
     return LogConfig(
-        append=bool(_strict(raw, "append", "log")),
-        level=str(_strict(raw, "level", "log")),
+        append=raw.get("append", False),
+        level=raw.get("level", "DEBUG"),
         console=console,
         file=file_cfg,
         all_log=all_log,
@@ -605,10 +605,10 @@ def _parse_mail(raw: dict, db_path: Path) -> MailConfig:
     db_path is injected programmatically — not from YAML.
     Note: auto-seeding providers is done in seed_mail_providers(), not here."""
     return MailConfig(
-        cooldown_sec=int(_strict(raw, "cooldown_sec", "mail")),
-        max_consecutive_fails=int(_strict(raw, "max_consecutive_fails", "mail")),
+        cooldown_sec=int(raw.get("cooldown_sec", 120)),
+        max_consecutive_fails=int(raw.get("max_consecutive_fails", 3)),
         db_path=db_path,
-        retryable_status_codes=tuple(int(c) for c in _strict(raw, "retryable_status_codes", "mail")),
+        retryable_status_codes=tuple(int(c) for c in raw.get("retryable_status_codes", (429, 500, 502, 503, 504))),
         http_timeout_sec=int(raw.get("http_timeout_sec", 15)),
         wait_timeout_sec=int(raw.get("wait_timeout_sec", 120)),
         poll_interval_sec=int(raw.get("poll_interval_sec", 5)),
@@ -642,7 +642,6 @@ _CONFIG_FILES = (
     "chatgpt.yaml",
     "leonardo.yaml",
     "klingai.yaml",
-    "twoslides.yaml",
     "mailosaur.yaml",
     "testmail.yaml",
     "artificialanalysis.yaml",
@@ -702,7 +701,13 @@ def load_config(path: Path | None = None) -> AppConfig:
         # path có thể là file hoặc folder: nếu là file thì lấy parent của parent (project root)
         base_dir = path.parent if path.is_dir() else path.parent.parent if path.parent.name == _CONFIG_DIR_NAME else path.parent
     raw = _load_raw(base_dir)
-    db_path = base_dir / "data" / "accounts.db"
+
+    # Resolve APP_ENV and DB path
+    from common.env import APP_ENV, db_path as _resolve_db_path
+    _cfg_env = _parse_database(raw.get("database")).env
+    _target_env = _cfg_env or APP_ENV
+    db_path = _resolve_db_path(_target_env)
+
     browser_raw = _require_section(raw, "browser")
     return AppConfig(
         log=_parse_log(_require_section(raw, "log")),
@@ -722,7 +727,6 @@ def load_config(path: Path | None = None) -> AppConfig:
         gmail_variations=_parse_gmail_variations(_require_section(raw, "gmail_variations")),
         leonardo=_parse_section_strict(LeonardoConfig, _require_section(raw, "leonardo"), "leonardo"),
         klingai=_parse_section_strict(KlingAIConfig, _require_section(raw, "klingai"), "klingai"),
-        twoslides=_parse_section_strict(TwoSlidesConfig, _require_section(raw, "twoslides"), "twoslides"),
         mailosaur=_parse_mailosaur(raw.get("mailosaur")),
         testmail=_parse_section_strict(TestmailConfig, _require_section(raw, "testmail"), "testmail"),
         mail=_parse_mail(_require_section(raw, "mail"), db_path),

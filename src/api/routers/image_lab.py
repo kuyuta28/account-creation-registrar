@@ -32,7 +32,7 @@ router = APIRouter(prefix="/image-lab", tags=["image-lab"])
 
 class StartImageLabBody(BaseModel):
     prompt: str = Field(..., min_length=1)
-    models: list[str] = Field(..., min_items=1)
+    models: list[str] = Field(..., min_length=1)
     aspect_ratio: str = "1:1 (Square)"
     dimensions: str = "1024x1024"
     generations: int = Field(default=1, ge=1, le=10)

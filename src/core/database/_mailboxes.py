@@ -232,7 +232,7 @@ def get_service_blocks(db_path: Path, service: str | None = None) -> list[dict[s
 def _to_sms_phone_dict(row: _Account) -> dict[str, Any]:
     return {
         "phone":      row.email,   # phone number stored in email column
-        "label":      row.label,
+        "label":      row.source_email or "",   # label stored in source_email column
         "disabled":   row.disabled,
         "created_at": row.created_at,
         "updated_at": row.updated_at,
@@ -265,19 +265,19 @@ def upsert_sms_phone(
         .values(
             service="SMS",
             email=normalized,
-            label=label,
+            source_email=label,  # label stored in source_email column
             disabled=disabled,
             created_at=now,
             updated_at=now,
-            password="", app_password="", totp_secret="", source_email="",
-            api_key="", credits=0, refresh_token="", access_token="",
-            account_id="", id_token="", expired="", last_refresh="",
-            token_type="", check_status="", quota_pct="", last_checked="",
-            last_error="", session_state="",
+            password="",
+            check_status="",
+            last_checked="",
+            last_error="",
+            session_state="",
         )
         .on_conflict_do_update(
             index_elements=["service", "email"],
-            set_={"label": label, "disabled": disabled, "updated_at": now},
+            set_={"source_email": label, "disabled": disabled, "updated_at": now},
         )
     )
     with Session(_get_engine(db_path)) as s:

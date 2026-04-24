@@ -35,7 +35,9 @@ def _ollama_base_url():
     return load_config().cliproxy_sync.ollama_base_url
 
 
-async def sync_openrouter_to_cliproxy() -> dict[str, Any]:
+async def sync_openrouter_to_cliproxy(
+    account_emails: list[str] | None = None,
+) -> dict[str, Any]:
     """Sync OPENROUTER API keys từ DB vào CLIProxyAPI qua Management REST API.
     GET current list → compute diff → PUT merged list.
     """
@@ -44,7 +46,13 @@ async def sync_openrouter_to_cliproxy() -> dict[str, Any]:
     api_url = f"{base_url}/v0/management/openai-compatibility"
     headers = {"Authorization": f"Bearer {cfg.cliproxy_sync.management_key}"}
 
+    # Get accounts
     all_accs = await asyncio.to_thread(get_accounts, _db_path(), "OPENROUTER", True)
+    if account_emails:
+        email_set = {e.lower() for e in account_emails}
+        all_accs = [a for a in all_accs if a.get("email", "").lower() in email_set]
+
+    # Filter valid accounts
     db_keys = {
         acc["api_key"] for acc in all_accs
         if acc.get("api_key")
@@ -92,6 +100,68 @@ async def sync_openrouter_to_cliproxy() -> dict[str, Any]:
         "added": len(added_keys),
         "total": len(or_entry.get("api-key-entries", [])),
         "keys_added": added_keys,
+    }
+
+
+async def preview_sync_openrouter_to_cliproxy(
+    account_emails: list[str] | None = None,
+) -> dict[str, Any]:
+    """Preview — xem trước danh sách OPENROUTER sẽ được sync."""
+    cfg = load_config()
+    base_url = cfg.cliproxy_sync.management_url.rstrip("/")
+    api_url = f"{base_url}/v0/management/openai-compatibility"
+    headers = {"Authorization": f"Bearer {cfg.cliproxy_sync.management_key}"}
+
+    all_accs = await asyncio.to_thread(get_accounts, _db_path(), "OPENROUTER", True)
+    if account_emails:
+        email_set = {e.lower() for e in account_emails}
+        all_accs = [a for a in all_accs if a.get("email", "").lower() in email_set]
+
+    or_base = _or_base_url()
+    async with httpx.AsyncClient(timeout=cfg.cliproxy_sync.http_timeout_sec) as client:
+        get_resp = await client.get(api_url, headers=headers)
+        get_resp.raise_for_status()
+        compat_list: list = get_resp.json().get("openai-compatibility") or []
+
+        or_entry = next(
+            (e for e in compat_list if str(e.get("base-url", "")).rstrip("/") == or_base),
+            None,
+        )
+        existing_keys = set()
+        if or_entry:
+            existing_keys = {
+                e["api-key"] for e in (or_entry.get("api-key-entries") or [])
+                if isinstance(e, dict) and "api-key" in e
+            }
+
+    items = []
+    for acc in all_accs:
+        api_key = acc.get("api_key", "")
+        exists = api_key in existing_keys
+        is_valid = (
+            bool(api_key)
+            and not acc.get("disabled")
+            and acc.get("check_status") not in ("invalid", "error")
+        )
+        items.append({
+            "email": acc.get("email", ""),
+            "api_key": api_key,
+            "has_api_key": bool(api_key),
+            "exists_in_target": exists,
+            "will_sync": is_valid and not exists,
+            "is_valid": is_valid,
+            "disabled": acc.get("disabled", False),
+            "check_status": acc.get("check_status"),
+            "last_error": acc.get("last_error"),
+            "last_used": acc.get("last_used"),
+            "credits": acc.get("credits", 0),
+        })
+
+    return {
+        "total": len(items),
+        "will_sync": sum(1 for x in items if x["will_sync"]),
+        "exists_count": sum(1 for x in items if x["exists_in_target"]),
+        "items": items,
     }
 
 

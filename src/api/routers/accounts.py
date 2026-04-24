@@ -40,9 +40,14 @@ from ..services.checker_service import (
     start_or_privacy_check,
 )
 from ..services.sync_service import (
+    preview_sync_openrouter_to_cliproxy,
     sync_cliproxy,
     sync_ollama_to_cliproxy,
     sync_openrouter_to_cliproxy,
+)
+from ..services.ninerouter_sync import (
+    preview_sync_ollama_to_9router,
+    sync_ollama_to_9router,
 )
 
 _log = logging.getLogger(__name__)
@@ -231,10 +236,24 @@ async def sync_cliproxy_endpoint():
     return ok(result)
 
 
-@router.post("/sync-openrouter-cliproxy")
-async def sync_openrouter_cliproxy_endpoint():
+class SyncOpenRouterBody(BaseModel):
+    emails: list[str] | None = None
+
+
+@router.post("/sync-openrouter-cliproxy/preview")
+async def sync_openrouter_cliproxy_preview_endpoint(body: SyncOpenRouterBody):
+    """Xem trước danh sách OPENROUTER sẽ được sync."""
     try:
-        result = await sync_openrouter_to_cliproxy()
+        result = await preview_sync_openrouter_to_cliproxy(account_emails=body.emails)
+        return ok(result)
+    except Exception as e:
+        raise AppError(ErrorCode.INTERNAL, str(e), 500)
+
+
+@router.post("/sync-openrouter-cliproxy")
+async def sync_openrouter_cliproxy_endpoint(body: SyncOpenRouterBody):
+    try:
+        result = await sync_openrouter_to_cliproxy(account_emails=body.emails)
     except FileNotFoundError as e:
         raise AppError(ErrorCode.NOT_FOUND, str(e), 404)
     return ok(result)
@@ -247,6 +266,34 @@ async def sync_ollama_cliproxy_endpoint():
     except FileNotFoundError as e:
         raise AppError(ErrorCode.NOT_FOUND, str(e), 404)
     return ok(result)
+
+
+class Sync9routerBody(BaseModel):
+    emails: list[str] | None = None
+
+
+@router.post("/sync-ollama-9router/preview")
+async def sync_ollama_9router_preview_endpoint(body: Sync9routerBody):
+    """Xem trước danh sách Ollama accounts sẽ được sync sang 9router."""
+    try:
+        result = await preview_sync_ollama_to_9router(
+            account_emails=body.emails or None,
+        )
+        return ok(result)
+    except Exception as e:
+        raise AppError(ErrorCode.INTERNAL, str(e), 500)
+
+
+@router.post("/sync-ollama-9router")
+async def sync_ollama_9router_endpoint(body: Sync9routerBody):
+    """Sync Ollama accounts từ DB sang 9router db.json."""
+    try:
+        result = await sync_ollama_to_9router(
+            account_emails=body.emails or None,
+        )
+        return ok(result)
+    except Exception as e:
+        raise AppError(ErrorCode.INTERNAL, str(e), 500)
 
 
 # ── Auth sync ────────────────────────────────────────────────────────────────

@@ -79,13 +79,6 @@ class _AccountOpenRouter(_Base):
     last_refresh:  Mapped[str] = mapped_column(String(64), default="")
 
 
-class _AccountTwoSlides(_Base):
-    __tablename__ = "accounts_twoslides"
-    account_id: Mapped[int] = mapped_column(Integer, ForeignKey("accounts.id", ondelete="CASCADE"), primary_key=True)
-    api_key:    Mapped[str] = mapped_column(Text, default="")
-    credits:    Mapped[int] = mapped_column(Integer, default=0)
-
-
 class _AccountElevenLabs(_Base):
     __tablename__ = "accounts_elevenlabs"
     account_id: Mapped[int] = mapped_column(Integer, ForeignKey("accounts.id", ondelete="CASCADE"), primary_key=True)
@@ -117,7 +110,6 @@ _EXTENSION_MODELS: dict[str, type] = {
     "GMAIL":              _AccountGmail,
     "ARTIFICIALANALYSIS": _AccountAA,
     "OPENROUTER":         _AccountOpenRouter,
-    "2SLIDES":            _AccountTwoSlides,
     "ELEVENLABS":         _AccountElevenLabs,
     "OLLAMA":             _AccountOllama,
     "TESTMAIL":           _AccountTestmail,
@@ -136,7 +128,6 @@ _EXT_UPDATABLE: dict[str, frozenset[str]] = {
     "ARTIFICIALANALYSIS": frozenset({"api_key", "org_slug", "account_id"}),
     "OPENROUTER":         frozenset({"api_key", "credits", "quota_pct", "refresh_token",
                                      "access_token", "id_token", "token_type", "expired", "last_refresh"}),
-    "2SLIDES":            frozenset({"api_key", "credits"}),
     "ELEVENLABS":         frozenset({"api_key"}),
     "OLLAMA":             frozenset({"api_key"}),
     "TESTMAIL":           frozenset({"api_key"}),
@@ -347,9 +338,6 @@ def _to_dict(row: _Account, ext=None) -> dict[str, Any]:
         d["token_type"]    = ext.token_type
         d["expired"]       = ext.expired
         d["last_refresh"]  = ext.last_refresh
-    elif svc == "2SLIDES":
-        d["api_key"] = ext.api_key
-        d["credits"] = ext.credits
     elif svc in ("ELEVENLABS", "OLLAMA", "TESTMAIL"):
         d["api_key"] = ext.api_key
     elif svc == "MAILOSAUR":
@@ -460,11 +448,6 @@ def _ext_values(record) -> dict | None:
                 "token_type":    getattr(record, "token_type", ""),
                 "expired":       getattr(record, "expired", ""),
                 "last_refresh":  getattr(record, "last_refresh", ""),
-            }
-        case "2SLIDES":
-            return {
-                "api_key": getattr(record, "api_key", ""),
-                "credits": getattr(record, "credits", 0),
             }
         case "ELEVENLABS":
             return {"api_key": getattr(record, "api_key", "")}

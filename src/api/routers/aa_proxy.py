@@ -114,7 +114,7 @@ class GenerateBody(BaseModel):
 
     email: str = Field(..., description="Email tài khoản AA cần dùng")
     prompt: str = Field(..., min_length=1, max_length=300)
-    model_ids: list[str] = Field(..., min_items=1, description="List hostModelId UUIDs")
+    model_ids: list[str] = Field(..., min_length=1, description="List hostModelId UUIDs")
     generations_per_model: int = Field(default=1, ge=1, le=4)
     width: int = Field(default=1024)
     height: int = Field(default=1024)
