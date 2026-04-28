@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from src.core.database import (
+from common.database import (
     _MailProvider,
     _get_engine,
     _engines,
@@ -65,7 +65,7 @@ class TestMailConfigRealDB:
 
     def test_upserted_provider_visible_in_all_providers(self, db, mail):
         upsert_mail_provider(db, "mailslurp.com", api_key="sk_integ_a")
-        assert "mailslurp.com:sk_integ_a" in mail.all_providers
+        assert "mailslurp.com:sk_integ_a" in mail.providers_for()
 
     def test_new_domain_not_visible_for_service(self, db, mail):
         upsert_mail_provider(db, "mailslurp.com", api_key="sk_integ_b")
@@ -109,14 +109,14 @@ class TestMailConfigRealDB:
     def test_multiple_providers_all_returned(self, db, mail):
         for i in range(5):
             upsert_mail_provider(db, "mailslurp.com", api_key=f"sk_m{i}")
-        providers = mail.all_providers
+        providers = mail.providers_for()
         for i in range(5):
             assert f"mailslurp.com:sk_m{i}" in providers
 
     def test_upsert_idempotent_no_duplicate(self, db, mail):
         for _ in range(5):
             upsert_mail_provider(db, "mailslurp.com", api_key="sk_dup_integ")
-        matching = [p for p in mail.all_providers if p == "mailslurp.com:sk_dup_integ"]
+        matching = [p for p in mail.providers_for() if p == "mailslurp.com:sk_dup_integ"]
         assert len(matching) == 1
 
     def test_missing_db_returns_empty(self, tmp_path):

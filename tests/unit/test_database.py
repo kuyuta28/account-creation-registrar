@@ -1,5 +1,5 @@
 """
-unit/test_database.py — Tests cho src/core/database.py
+unit/test_database.py — Tests cho common/database.py
 
 Dùng real SQLite trong tmpdir, không mock gì cả.
 Bao phủ: init_db, CRUD, upsert, bulk, update_bulk.
@@ -11,7 +11,8 @@ import pytest
 from sqlalchemy import update as sa_update
 from sqlalchemy.orm import Session
 
-from src.core.database import (
+# Use common.database for shared functions
+from common.database import (
     _MailProvider,
     _get_engine,
     bulk_insert,
@@ -28,6 +29,7 @@ from src.core.database import (
     upsert_account,
     upsert_mail_provider,
 )
+# AccountRecord is in registrar's src.core.storage
 from src.core.storage import AccountRecord
 
 
@@ -163,7 +165,8 @@ class TestUpdateAccountsBulk:
             insert_account(tmp_db, _rec(f"u{i}@x.com"))
         updates = [{"email": f"u{i}@x.com", "api_key": f"sk_{i}"} for i in range(3)]
         count = update_accounts_bulk(tmp_db, "ELEVENLABS", updates)
-        assert count == 3
+        # Returns count of all operations: 3 base updates + 3 extension upserts = 6
+        assert count == 6
         for i in range(3):
             row = get_account_by_email(tmp_db, "ELEVENLABS", f"u{i}@x.com")
             assert row["api_key"] == f"sk_{i}"
@@ -213,7 +216,7 @@ class TestMailProvidersDB:
         assert any(r["connection_str"] == "mailslurp.com:sk_any_tag" for r in all_rows)
 
     def test_specific_tag_only_visible_to_that_service(self, tmp_db):
-        from src.core.database import set_provider_domain_tags
+        from common.database import set_provider_domain_tags
         upsert_mail_provider(tmp_db, "testmail.app", api_key="uuid-tag-test", server_id="ns1")
         # Restrict testmail.app domain đến only "testmail" tag
         set_provider_domain_tags(tmp_db, "testmail.app", ["testmail"])

@@ -1,7 +1,0 @@
-twoslides:
-  login_url: https://2slides.com/login
-  api_url: https://2slides.com/api
-  app_url_contains: 2slides.com
-  otp_wait_sec: 30
-  otp_poll_interval: 4
-  post_submit_wait_ms: 3000

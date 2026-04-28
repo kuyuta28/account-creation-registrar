@@ -32,7 +32,6 @@ dev.cmd
 | `ELEVENLABS` | elevenlabs.io |
 | `LEONARDO` | leonardo.ai |
 | `KLINGAI` | klingai.com |
-| `2SLIDES` | 2slides.com |
 | `PROTON` | proton.me |
 | `ARTIFICIALANALYSIS` | artificialanalysis.ai |
 | `TESTMAIL` | testmail.app |

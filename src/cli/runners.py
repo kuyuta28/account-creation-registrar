@@ -179,19 +179,6 @@ def run_proton(count: int = 1) -> None:
     asyncio.run(_run_fp_sequential(count, "Proton Mail Account Creator", "PROTON", _print))
 
 
-def run_2slides(count: int = 1, workers: int = 1) -> None:
-    def _print(record, ok: int, total: int) -> None:
-        print(f"\n{_SEP}\nDONE [{ok}/{total}]\n{_SEP}")
-        print(f"  Email:   {record.email}")
-        print(f"  API Key: {record.api_key}")
-        print(_SEP)
-
-    if workers > 1:
-        asyncio.run(_run_fp_parallel(count, workers, "2slides Account Creator", "2SLIDES", _print))
-    else:
-        asyncio.run(_run_fp_sequential(count, "2slides Account Creator", "2SLIDES", _print))
-
-
 def run_openrouter(count: int = 1, workers: int = 1) -> None:
     def _print(record, ok: int, total: int) -> None:
         print(f"\n{_SEP}\nDONE [{ok}/{total}]\n{_SEP}")
@@ -258,10 +245,6 @@ def main_run_elevenlabs() -> None:
 
 def main_run_leonardo() -> None:
     run_leonardo(parse_count_arg())
-
-
-def main_run_2slides() -> None:
-    run_2slides(parse_count_arg(), parse_workers_arg())
 
 
 def main_run_openrouter() -> None:

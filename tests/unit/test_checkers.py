@@ -54,7 +54,7 @@ class TestIsExpired:
 
     def test_naive_datetime_treated_as_utc(self):
         # Naive datetime (không có tzinfo) = UTC
-        future = (datetime.utcnow() + timedelta(days=1)).isoformat(timespec="seconds")
+        future = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(timespec="seconds")
         assert self._call(future) is False
 
 

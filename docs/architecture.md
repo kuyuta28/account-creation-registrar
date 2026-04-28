@@ -25,7 +25,7 @@ Mỗi service **độc lập**: git riêng, pyproject riêng, run độc lập. 
 ```
 src/
   api/           ← FastAPI routes
-  services/      ← registrar per platform (twoslides, proton, klingai...)
+  services/      ← registrar per platform (proton, klingai...)
   mail/          ← mail provider clients (mail.tm, testmail.app, mailslurp)
   core/          ← job runner, browser manager, config loader
 ui/              ← frontend (Vite/React)
@@ -51,7 +51,6 @@ config/          ← per-service YAML configs
 | `ELEVENLABS` | elevenlabs.io |
 | `LEONARDO` | leonardo.ai |
 | `KLINGAI` | klingai.com |
-| `2SLIDES` | 2slides.com |
 | `PROTON` | proton.me |
 | `ARTIFICIALANALYSIS` | artificialanalysis.ai |
 
@@ -124,7 +123,6 @@ Public interface của mỗi provider:
 | `elevenlabs_io/` | elevenlabs.io | `ELEVENLABS` |
 | `leonardo_ai/` | leonardo.ai | `LEONARDO` |
 | `klingai_com/` | klingai.com | `KLINGAI` |
-| `twoslides_com/` | 2slides.com | `2SLIDES` |
 | `proton_me/` | proton.me | `PROTON` |
 | `artificialanalysis_ai/` | artificialanalysis.ai | `ARTIFICIALANALYSIS` |
 | `testmail_app/` | testmail.app | `TESTMAIL` |
@@ -273,7 +271,6 @@ async def get_messages(box: Mailbox) -> List[Dict]:
                            │  register_elevenlabs(cfg,log,save)│
                            │  register_openrouter(cfg,log,save)│
                            │  register_chatgpt(cfg,log,save)  │
-                           │  register_twoslides(...)         │
                            └──────────┬──────────────────────┘
                                       │
                            ┌──────────▼──────────────────────┐

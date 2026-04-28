@@ -38,7 +38,6 @@ account-creation = "src.cli.menu:main"
 run-elevenlabs = "src.cli.runners:main_run_elevenlabs"
 run-chatgpt = "src.cli.runners:main_run_chatgpt"
 run-leonardo = "src.cli.runners:main_run_leonardo"
-run-2slides = "src.cli.runners:main_run_2slides"
 run-tts = "src.tts_proxy.server:app"
 
 [tool.setuptools]
@@ -47,6 +46,9 @@ include-package-data = false
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*"]
+
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "function"
 
 # ---------------------------------------------------------------------------
 # Ruff — linter (cài: pip install ruff)

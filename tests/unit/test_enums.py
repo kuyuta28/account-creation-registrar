@@ -1,5 +1,5 @@
 """
-unit/test_enums.py — Tests cho src/core/enums.py
+unit/test_enums.py — Tests cho common/enums.py
 
 Bao phủ: GooglePageState, JobStatus, CheckStatus, ErrorCode.
 Pure enum tests — chỉ kiểm tra values, properties, serialization.
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.core.enums import CheckStatus, ErrorCode, GooglePageState, JobStatus
+from common.enums import CheckStatus, ErrorCode, GooglePageState, JobStatus
 
 
 # ── GooglePageState ───────────────────────────────────────────────────────────
@@ -85,7 +85,7 @@ class TestJobStatus:
 
 class TestCheckStatus:
     def test_all_statuses(self):
-        assert {s.value for s in CheckStatus} == {"valid", "invalid", "error"}
+        assert {s.value for s in CheckStatus} == {"valid", "invalid", "error", "expired"}
 
     def test_str_equality(self):
         assert CheckStatus.VALID == "valid"

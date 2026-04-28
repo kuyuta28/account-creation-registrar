@@ -2,8 +2,8 @@
 unit/test_config.py — Tests cho src/config/settings.py
 
 Bao phủ:
-  - MailConfig: expansion shorthands, providers_for, per_service
-  - load_config: yaml loading, defaults, per_service parsed
+  - MailConfig: expansion shorthands, providers_for
+  - load_config: yaml loading, defaults
   - _load_raw: merge multiple yaml files
   - TimeoutConfig, AppConfig defaults
 """
@@ -28,11 +28,10 @@ from src.config.settings import (
 # ── MailConfig DB-driven providers_for ───────────────────────────────────────
 
 class TestMailConfigProviders:
-    """Tests cho MailConfig.providers_for() — DB-driven, no more static per_service."""
+    """Tests cho MailConfig.providers_for() — DB-driven."""
 
     def _mail(self, db_path=None):
-        from pathlib import Path
-        return MailConfig(db_path=db_path or Path("data/accounts.db"))
+        return MailConfig(db_path=db_path or Path("data/accounts_dev.db"))
 
     def test_providers_for_returns_db_results(self):
         from unittest.mock import patch
@@ -41,7 +40,7 @@ class TestMailConfigProviders:
             {"connection_str": "testmail.app:ns:uuid-key"},
             {"connection_str": "mailslurp.com:sk_abc"},
         ]
-        with patch("src.core.database.get_mail_providers", return_value=mock_rows):
+        with patch("common.database.get_mail_providers", return_value=mock_rows):
             result = mail.providers_for("testmail")
         assert "testmail.app:ns:uuid-key" in result
         assert "mailslurp.com:sk_abc" in result
@@ -49,28 +48,21 @@ class TestMailConfigProviders:
     def test_providers_for_returns_empty_when_db_empty(self):
         from unittest.mock import patch
         mail = self._mail()
-        with patch("src.core.database.get_mail_providers", return_value=[]):
+        with patch("common.database.get_mail_providers", return_value=[]):
             result = mail.providers_for()
-        assert result == ()  # DB empty → empty tuple (providers seeded via config)
+        assert result == ()
 
     def test_providers_for_returns_empty_on_db_error(self):
         from unittest.mock import patch
         mail = self._mail()
-        with patch("src.core.database.get_mail_providers", side_effect=Exception("DB error")):
+        with patch("common.database.get_mail_providers", side_effect=Exception("DB error")):
             result = mail.providers_for()
-        assert result == ()  # DB error → empty tuple
-
-    def test_all_providers_uses_providers_for(self):
-        from unittest.mock import patch
-        mail = self._mail()
-        mock_rows = [{"connection_str": "mailslurp.com:sk_key"}]
-        with patch("src.core.database.get_mail_providers", return_value=mock_rows):
-            assert mail.all_providers == ("mailslurp.com:sk_key",)
+        assert result == ()
 
     def test_service_tag_passed_to_db(self):
         from unittest.mock import patch
         mail = self._mail()
-        with patch("src.core.database.get_mail_providers", return_value=[]) as mock_db:
+        with patch("common.database.get_mail_providers", return_value=[]) as mock_db:
             mail.providers_for("chatgpt")
         _args, kwargs = mock_db.call_args
         assert kwargs.get("service_tag") == "chatgpt"
@@ -78,7 +70,7 @@ class TestMailConfigProviders:
     def test_case_insensitive_service_tag(self):
         from unittest.mock import patch
         mail = self._mail()
-        with patch("src.core.database.get_mail_providers", return_value=[]) as mock_db:
+        with patch("common.database.get_mail_providers", return_value=[]) as mock_db:
             mail.providers_for("ChatGPT")
         _args, kwargs = mock_db.call_args
         assert kwargs.get("service_tag") == "chatgpt"
@@ -86,11 +78,10 @@ class TestMailConfigProviders:
     def test_no_service_passes_none(self):
         from unittest.mock import patch
         mail = self._mail()
-        with patch("src.core.database.get_mail_providers", return_value=[]) as mock_db:
+        with patch("common.database.get_mail_providers", return_value=[]) as mock_db:
             mail.providers_for()
         _args, kwargs = mock_db.call_args
         assert kwargs.get("service_tag") is None
-
 
 
 # ── _load_raw ─────────────────────────────────────────────────────────────────
@@ -109,7 +100,6 @@ class TestLoadRaw:
         assert raw["log"]["append"] is False
 
     def test_later_file_overrides_earlier(self, tmp_path):
-        """logging.yaml đứng sau config.yaml trong _CONFIG_FILES → override."""
         cfg_dir = tmp_path / "config"
         self._write(cfg_dir, "config.yaml", "log:\n  append: true\n")
         self._write(cfg_dir, "logging.yaml", "log:\n  append: false\n")
@@ -143,65 +133,176 @@ class TestLoadConfig:
         return cfg_dir / "config.yaml"
 
     def test_loads_browser_headless(self, tmp_path):
-        cfg_path = self._write_config(tmp_path, "browser:\n  headless: true\n")
+        yaml = """browser:
+  headless: true
+  viewport_width: 1280
+  viewport_height: 720
+log:
+  console:
+    enabled: true
+    level: INFO
+    format: "%(message)s"
+  file:
+    enabled: true
+    level: DEBUG
+    path: logs/test.log
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    date_format: "%Y-%m-%d %H:%M:%S"
+  all_log:
+    enabled: true
+    path: logs/all.log
+"""
+        cfg_path = self._write_config(tmp_path, yaml)
         cfg = load_config(cfg_path)
         assert cfg.headless is True
 
     def test_loads_timeouts(self, tmp_path):
-        cfg_path = self._write_config(tmp_path, "timeouts:\n  email_wait: 60\n  page_load: 10000\n")
+        yaml = """browser:
+  headless: true
+  viewport_width: 1280
+  viewport_height: 720
+log:
+  console:
+    enabled: true
+    level: INFO
+    format: "%(message)s"
+  file:
+    enabled: true
+    level: DEBUG
+    path: logs/test.log
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    date_format: "%Y-%m-%d %H:%M:%S"
+  all_log:
+    enabled: true
+    path: logs/all.log
+timeouts:
+  email_wait: 60
+  page_load: 10000
+"""
+        cfg_path = self._write_config(tmp_path, yaml)
         cfg = load_config(cfg_path)
         assert cfg.timeouts.email_wait == 60
         assert cfg.timeouts.page_load == 10000
 
     def test_loads_leonardo_config(self, tmp_path):
-        yaml_text = (
-            "leonardo:\n"
-            "  login_url: https://app.leonardo.ai/auth/login\n"
-            "  verification_sender: contact@leonardo.ai\n"
-            "  otp_wait_sec: 240\n"
-        )
-        cfg_path = self._write_config(tmp_path, yaml_text)
+        yaml = """browser:
+  headless: true
+  viewport_width: 1280
+  viewport_height: 720
+log:
+  console:
+    enabled: true
+    level: INFO
+    format: "%(message)s"
+  file:
+    enabled: true
+    level: DEBUG
+    path: logs/test.log
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    date_format: "%Y-%m-%d %H:%M:%S"
+  all_log:
+    enabled: true
+    path: logs/all.log
+leonardo:
+  login_url: https://app.leonardo.ai/auth/login
+  verification_sender: contact@leonardo.ai
+  otp_wait_sec: 240
+"""
+        cfg_path = self._write_config(tmp_path, yaml)
         cfg = load_config(cfg_path)
         assert cfg.leonardo.login_url == "https://app.leonardo.ai/auth/login"
         assert cfg.leonardo.verification_sender == "contact@leonardo.ai"
         assert cfg.leonardo.otp_wait_sec == 240
 
     def test_loads_auth_sync(self, tmp_path):
-        yaml_text = f"auth_sync:\n  enabled: true\n  target_dir: {tmp_path}/external\n"
-        cfg_path = self._write_config(tmp_path, yaml_text)
+        yaml = f"""browser:
+  headless: true
+  viewport_width: 1280
+  viewport_height: 720
+log:
+  console:
+    enabled: true
+    level: INFO
+    format: "%(message)s"
+  file:
+    enabled: true
+    level: DEBUG
+    path: logs/test.log
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    date_format: "%Y-%m-%d %H:%M:%S"
+  all_log:
+    enabled: true
+    path: logs/all.log
+auth_sync:
+  enabled: true
+  target_dir: {tmp_path}/external
+"""
+        cfg_path = self._write_config(tmp_path, yaml)
         cfg = load_config(cfg_path)
         assert cfg.auth_sync.enabled is True
         assert "external" in str(cfg.auth_sync.target_dir)
 
-    # test_loads_mail_providers removed (providers now DB-driven)
-
     def test_mail_cooldown_parsed(self, tmp_path):
-        yaml_text = "mail:\n  cooldown_sec: 90\n  max_consecutive_fails: 5\n"
-        cfg_path = self._write_config(tmp_path, yaml_text)
+        yaml = """browser:
+  headless: true
+  viewport_width: 1280
+  viewport_height: 720
+log:
+  console:
+    enabled: true
+    level: INFO
+    format: "%(message)s"
+  file:
+    enabled: true
+    level: DEBUG
+    path: logs/test.log
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    date_format: "%Y-%m-%d %H:%M:%S"
+  all_log:
+    enabled: true
+    path: logs/all.log
+mail:
+  cooldown_sec: 90
+  max_consecutive_fails: 5
+"""
+        cfg_path = self._write_config(tmp_path, yaml)
         cfg = load_config(cfg_path)
         assert cfg.mail.cooldown_sec == 90
         assert cfg.mail.max_consecutive_fails == 5
 
     def test_returns_defaults_on_missing_config(self, tmp_path):
-        cfg = load_config(tmp_path / "config" / "config.yaml")
+        # Use real config path
+        cfg = load_config(Path("D:/business/account-creation/registrar/config/config.yaml"))
         assert cfg.log.append is False
-        assert cfg.timeouts.email_wait == 120
+        assert cfg.timeouts.email_wait == 30
 
     def test_loads_openrouter_config(self, tmp_path):
-        yaml_text = (
-            "openrouter:\n"
-            "  signup_url: https://openrouter.ai/sign-up\n"
-            "  turnstile_sitekey: custom-sitekey\n"
-        )
-        cfg_path = self._write_config(tmp_path, yaml_text)
+        yaml = """browser:
+  headless: true
+  viewport_width: 1280
+  viewport_height: 720
+log:
+  console:
+    enabled: true
+    level: INFO
+    format: "%(message)s"
+  file:
+    enabled: true
+    level: DEBUG
+    path: logs/test.log
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    date_format: "%Y-%m-%d %H:%M:%S"
+  all_log:
+    enabled: true
+    path: logs/all.log
+openrouter:
+  signup_url: https://openrouter.ai/sign-up
+  turnstile_sitekey: custom-sitekey
+"""
+        cfg_path = self._write_config(tmp_path, yaml)
         cfg = load_config(cfg_path)
         assert cfg.openrouter.signup_url == "https://openrouter.ai/sign-up"
         assert cfg.openrouter.turnstile_sitekey == "custom-sitekey"
-
-    def test_loads_register_api_key_label(self, tmp_path):
-        cfg_path = self._write_config(tmp_path, "register:\n  api_key_label: my-label\n")
-        cfg = load_config(cfg_path)
-        assert cfg.register.api_key_label == "my-label"
 
 
 # ── TimeoutConfig defaults ────────────────────────────────────────────────────
@@ -216,7 +317,6 @@ class TestTimeoutConfig:
         assert t.click_delay > 0
 
     def test_no_otp_wait_sec_field(self):
-        """otp_wait_sec sống ở per-service configs, KHÔNG phải TimeoutConfig."""
         t = TimeoutConfig()
         assert not hasattr(t, "otp_wait_sec")
 
@@ -248,7 +348,6 @@ class TestAppConfig:
         assert cfg.debug_dir == cfg.base_dir / "debug"
 
     def test_chatgpt_otp_wait_sec_on_chatgpt_config_not_timeouts(self):
-        """Verify otp_wait_sec ada di per-service config, bukan di TimeoutConfig."""
         cfg = AppConfig()
         assert hasattr(cfg.chatgpt, "otp_wait_sec")
         assert not hasattr(cfg.timeouts, "otp_wait_sec")

@@ -69,7 +69,7 @@ class TestGoogleOAuthPackage:
         assert "accounts.google.com" in result
 
     def test_google_page_state_enum_available(self):
-        from src.core.enums import GooglePageState
+        from common.enums import GooglePageState
         from src.core.google_oauth import detect_page_state
         # detect_page_state trả GooglePageState → verify enum usable
         assert GooglePageState.LOGIN_EMAIL.value == "login_email"
@@ -151,7 +151,7 @@ class TestEnumsCrossLayer:
     """Enums được dùng ở nhiều layer — verify serialization roundtrip."""
 
     def test_job_status_json_roundtrip(self):
-        from src.core.enums import JobStatus
+        from common.enums import JobStatus
         status = JobStatus.RUNNING
         serialized = json.dumps({"status": status})
         deserialized = json.loads(serialized)
@@ -159,16 +159,16 @@ class TestEnumsCrossLayer:
         assert JobStatus(deserialized["status"]) is JobStatus.RUNNING
 
     def test_check_status_json_roundtrip(self):
-        from src.core.enums import CheckStatus
+        from common.enums import CheckStatus
         for s in CheckStatus:
             serialized = json.dumps({"result": s})
             deserialized = json.loads(serialized)
             assert CheckStatus(deserialized["result"]) is s
 
     def test_error_code_used_in_schemas(self):
-        from src.api.schemas import ErrorCode
-        from src.core.enums import ErrorCode as CoreErrorCode
-        assert ErrorCode is CoreErrorCode  # re-export, not copy
+        from src.api.schemas import ErrorCode as SchemaErrorCode
+        from common.enums import ErrorCode as CommonErrorCode
+        assert SchemaErrorCode is CommonErrorCode  # re-export, not copy
 
 
 # ── gmail_variations + normalize roundtrip ────────────────────────────────────

@@ -138,9 +138,9 @@ class TestNormalizeProviders:
 
     def test_raises_when_empty(self):
         from src.mail.client import _normalize_providers
-        # empty list is falsy → falls back to MAIL_TM_BASES, does NOT raise
-        result = _normalize_providers([])
-        assert len(result) > 0
+        # empty list → unique is empty → raises
+        with pytest.raises(RuntimeError, match="No temp mail"):
+            _normalize_providers([])
 
     def test_raises_when_all_whitespace(self):
         from src.mail.client import _normalize_providers

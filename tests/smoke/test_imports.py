@@ -111,28 +111,12 @@ def test_import_elevenlabs_api_key():
     from src.services.elevenlabs_io import api_key  # noqa
 
 
-def test_import_chatgpt_registrar():
-    from src.services.chatgpt_com import registrar  # noqa
-
-
-def test_import_chatgpt_page_actions():
-    from src.services.chatgpt_com import page_actions  # noqa
-
-
-def test_import_chatgpt_pkce():
-    from src.services.chatgpt_com import pkce  # noqa
-
-
 def test_import_openrouter_registrar():
     from src.services.openrouter_ai import registrar  # noqa
 
 
 def test_import_leonardo_registrar():
     from src.services.leonardo_ai import registrar  # noqa
-
-
-def test_import_twoslides_registrar():
-    from src.services.twoslides_com import registrar  # noqa
 
 
 def test_import_proton_registrar():

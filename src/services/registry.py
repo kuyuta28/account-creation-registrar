@@ -36,11 +36,6 @@ def _make_leonardo(cfg: AppConfig) -> Registrar:
     return partial(register_leonardo, cfg)
 
 
-def _make_twoslides(cfg: AppConfig) -> Registrar:
-    from .twoslides_com.registrar import register_twoslides
-    return partial(register_twoslides, cfg)
-
-
 def _make_proton(cfg: AppConfig) -> Registrar:
     from .proton_me.registrar import register_proton
     return partial(register_proton, cfg)
@@ -67,7 +62,6 @@ _FACTORIES: dict[str, Callable[[AppConfig], Registrar]] = {
     "OPENROUTER": _make_openrouter,
     "ELEVENLABS": _make_elevenlabs,
     "LEONARDO":   _make_leonardo,
-    "2SLIDES":    _make_twoslides,
     "PROTON":     _make_proton,
     "ARTIFICIALANALYSIS": _make_artificialanalysis,
     "TESTMAIL":           _make_testmail,

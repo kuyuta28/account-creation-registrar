@@ -12,6 +12,7 @@ Không mock IO ở đây — fixtures provide REAL implementations.
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -22,6 +23,16 @@ import pytest
 # Đảm bảo src/ importable
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
+
+# Đảm bảo common/ importable (symlink hoặc pip install -e)
+# common/src/common → add common/src to path
+_common_src = _ROOT.parent / "common" / "src"
+if _common_src.exists():
+    sys.path.insert(0, str(_common_src))
+
+# ── Test environment ──────────────────────────────────────────────────────────
+# Set APP_ENV=test để isolated test DB (accounts_test.db)
+os.environ["APP_ENV"] = "test"
 
 
 # ── event loop ────────────────────────────────────────────────────────────────

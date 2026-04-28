@@ -216,20 +216,6 @@ Maps to `KlingAIConfig`.
 
 ---
 
-## `twoslides`
-
-Maps to `TwoSlidesConfig`.
-
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `signup_url` | str | `https://app.2slides.net` | Sign-up / login page |
-| `app_url_contains` | str | `2slides.net` | Substring to detect app |
-| `otp_wait_sec` | int | `90` | Max wait for OTP email |
-| `otp_poll_interval` | int | `5` | Poll interval |
-| `post_submit_wait_ms` | int | `3000` | Wait after form submits |
-
----
-
 ## Example configs
 
 ### `config/mail.yaml`

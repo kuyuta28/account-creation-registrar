@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 from logging import Logger
 from unittest.mock import AsyncMock, MagicMock, patch, call
+from common.enums import JobStatus
 
 
 import pytest
@@ -174,19 +175,19 @@ class TestCancelJob:
     def test_cancel_running_job_ok(self):
         from src.api.services.registration_service import create_job, cancel_job
         job = create_job("s", 1)
-        job.status = "running"
+        job.status = JobStatus.RUNNING
         assert cancel_job(job.id) is True
 
     def test_cannot_cancel_done_job(self):
         from src.api.services.registration_service import create_job, cancel_job
         job = create_job("s", 1)
-        job.status = "done"
+        job.status = JobStatus.DONE
         assert cancel_job(job.id) is False
 
     def test_cannot_cancel_failed_job(self):
         from src.api.services.registration_service import create_job, cancel_job
         job = create_job("s", 1)
-        job.status = "failed"
+        job.status = JobStatus.FAILED
         assert cancel_job(job.id) is False
 
     def test_cancel_with_task_calls_task_cancel(self):
@@ -250,14 +251,15 @@ class TestRunWorker:
         from src.api.services.registration_service import _run_worker, create_job
 
         with patch("src.services.registry.make_registrar", return_value=None):
-            with patch("src.api.services.registration_service.load_config",
-                   return_value=MagicMock(registration=MagicMock(max_jobs=100, max_workers=10, max_consecutive_fails=3))):
-                job = create_job("unknown_svc", 1)
-                log_fn = MagicMock()
-                save_fn = MagicMock()
-                asyncio.run(_run_worker(job, log_fn, save_fn))
+            with patch("src.api.services.aar_client.aar_platforms", new_callable=AsyncMock, return_value={"ELEVENLABS"}):
+                with patch("src.api.services.registration_service.load_config",
+                       return_value=MagicMock(registration=MagicMock(max_jobs=100, max_workers=10, max_consecutive_fails=3))):
+                    job = create_job("unknown_svc", 1)
+                    log_fn = MagicMock()
+                    save_fn = MagicMock()
+                    asyncio.run(_run_worker(job, log_fn, save_fn))
 
-        assert job.status == "failed"
+        assert job.status == JobStatus.FAILED
         assert "unknown_svc" in (job.error or "").lower()
 
     def test_run_worker_is_coroutine(self):
