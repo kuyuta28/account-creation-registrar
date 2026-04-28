@@ -25,7 +25,7 @@ COPY common/src ./common/src
 RUN pip install --no-cache-dir -e . --no-deps
 
 # Install remaining dependencies
-RUN pip install --no-cache-dir fastapi uvicorn httpx pydantic PyYAML sqlalchemy requests aiofiles Pillow pyotp camoufox playwright sentry-sdk
+RUN pip install --no-cache-dir fastapi uvicorn httpx pydantic PyYAML sqlalchemy asyncpg requests aiofiles Pillow pyotp camoufox playwright sentry-sdk
 
 # Create directories
 RUN mkdir -p /app/data /app/logs /app/debug /app/screenshots
