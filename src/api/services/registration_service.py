@@ -19,9 +19,7 @@ from __future__ import annotations
 import asyncio
 import traceback
 import uuid
-from dataclasses import dataclass, field
-from datetime import datetime, UTC
-
+from datetime import datetime
 from typing import NamedTuple
 
 from ...config.settings import load_config
@@ -31,6 +29,8 @@ from ...services.errors import FatalRegistrationError
 from ..ws.log_manager import LogBus, broadcast, cleanup_job
 from ...services.protocols import LogFn, SaveFn
 from common.enums import JobStatus
+from common.context import get_app_context
+from .job_manager import Job, JobManager
 
 
 # ── Worker channel message types (module-level để tránh tạo class trong vòng lặp) ──
@@ -47,61 +47,29 @@ class _WorkResult(NamedTuple):
     fatal:     bool = False  # True = lỗi không thể recover, dừng job ngay
 
 
-# ── Job dataclass ─────────────────────────────────────────────────────
+# ── JobStore: via JobManager ──────────────────────────────────────────
 
-@dataclass
-class Job:
-    id: str
-    service: str
-    count: int
-    workers: int = 1
-    status: JobStatus = JobStatus.PENDING
-    created_at: str = field(
-        default_factory=lambda: datetime.now(UTC).isoformat()
-    )
-    created_count: int = 0
-    processed_count: int = 0
-    error: str | None = None
-
-
-# ── JobStore: module-level với pure accessor functions ────────────────
-
-_store: dict[str, Job] = {}
-_cancel_flags: dict[str, bool] = {}
-_tasks: dict[str, asyncio.Task] = {}   # giữ strong reference → tránh GC kill task
+def _get_job_manager() -> JobManager:
+    return get_app_context().job_state
 
 
 def create_job(service: str, count: int, workers: int = 1) -> Job:
     cfg = load_config()
-    max_jobs = cfg.registration.max_jobs
     max_workers = cfg.registration.max_workers
     job = Job(id=str(uuid.uuid4()), service=service, count=count, workers=max(1, min(max_workers, workers)))
-    # asyncio là single-threaded cooperative, không cần lock cho dict access
-    if len(_store) >= max_jobs:
-        oldest = next(iter(_store))
-        del _store[oldest]
-    _store[job.id] = job
-    return job
+    return _get_job_manager().create_job(job)
 
 
 def get_job(job_id: str) -> Job | None:
-    return _store.get(job_id)
+    return _get_job_manager().get_job(job_id)
 
 
 def list_jobs() -> list[Job]:
-    return list(_store.values())
+    return _get_job_manager().list_jobs()
 
 
 def cancel_job(job_id: str) -> bool:
-    job = _store.get(job_id)
-    if not job or not job.status.is_active:
-        return False
-    _cancel_flags[job_id] = True
-    # Cancel asyncio Task thật sự → CancelledError inject vào giữa chừng registrar
-    task = _tasks.get(job_id)
-    if task:
-        task.cancel()
-    return True
+    return _get_job_manager().request_cancel(job_id)
 
 
 # ── LogFn factory cho asyncio task ───────────────────────────────────
@@ -131,7 +99,7 @@ async def _sync_openrouter_post_job(log_fn: LogFn) -> None:
 
 # ── Worker: async function chạy trong asyncio task ────────────────────
 
-async def _run_worker(job: Job, log_fn: LogFn, save_fn: SaveFn) -> None:
+async def _run_worker(job: Job, log_fn: LogFn, save_fn: SaveFn, mgr: JobManager) -> None:
     """
     Async execution worker — pure function nhận tất cả deps qua argument.
     Parallel execution qua asyncio.gather với Semaphore giới hạn concurrency.
@@ -166,7 +134,7 @@ async def _run_worker(job: Job, log_fn: LogFn, save_fn: SaveFn) -> None:
             job.error  = str(exc)
             log_fn(f"\n❌ AAR Error: {exc}")
         finally:
-            _cancel_flags.pop(job.id, None)
+            mgr.clear_cancel(job.id)
         return
 
     # Validate service trước khi bắt đầu (local registrar)
@@ -238,7 +206,7 @@ async def _run_worker(job: Job, log_fn: LogFn, save_fn: SaveFn) -> None:
         def _need_more() -> bool:
             return (
                 created + in_flight < job.count
-                and not _cancel_flags.get(job.id)
+                and not mgr.is_cancelled(job.id)
                 and consecutive_fails < _MAX_CONSECUTIVE_FAILS
             )
 
@@ -280,7 +248,7 @@ async def _run_worker(job: Job, log_fn: LogFn, save_fn: SaveFn) -> None:
                 log_fn(f"\n🛑 {consecutive_fails} lần fail liên tục — dừng job")
                 break
 
-            if _cancel_flags.get(job.id):
+            if mgr.is_cancelled(job.id):
                 job.status = JobStatus.STOPPED
                 job.error  = "Người dùng dừng job"
                 log_fn("\n🛑 Người dùng dừng job")
@@ -321,7 +289,7 @@ async def _run_worker(job: Job, log_fn: LogFn, save_fn: SaveFn) -> None:
         job.error  = str(exc)
         log_fn(f"\n❌ Error: {exc}\n{traceback.format_exc()}")
     finally:
-        _cancel_flags.pop(job.id, None)
+        mgr.clear_cancel(job.id)
 
 
 # ── Public runner ─────────────────────────────────────────────────────
@@ -331,10 +299,11 @@ def run_job(job_id: str, bus: LogBus) -> None:
     Khởi động job trong asyncio background task.
     Dependency injection: bus được truyền vào, không dùng singleton trực tiếp.
     """
-    job = _store.get(job_id)
+    job = _get_job_manager().get_job(job_id)
     if not job:
         return
 
+    mgr = _get_job_manager()
     cfg    = load_config()
     ts       = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = cfg.base_dir / "logs" / f"{job.service.lower()}_{ts}_{job_id[:8]}.log"
@@ -347,7 +316,7 @@ def run_job(job_id: str, bus: LogBus) -> None:
 
     async def _worker_with_cleanup() -> None:
         try:
-            await _run_worker(job, log_fn, save_fn)
+            await _run_worker(job, log_fn, save_fn, mgr)
         except asyncio.CancelledError:
             if job.status == JobStatus.RUNNING:
                 job.status = JobStatus.FAILED
@@ -357,9 +326,9 @@ def run_job(job_id: str, bus: LogBus) -> None:
                 job.status = JobStatus.FAILED
                 job.error  = str(exc)
         finally:
-            _tasks.pop(job_id, None)
+            mgr.untrack_task(job_id)
             cleanup_job(bus, job_id)
 
     task = asyncio.create_task(_worker_with_cleanup())
-    _tasks[job_id] = task   # giữ strong reference, tránh GC kill task giữa chừng
+    mgr.track_task(job_id, task)
 
