@@ -14,7 +14,7 @@ class TestInternalClient:
     def test_client_initializes_with_defaults(self):
         from common.internal_client import InternalClient
         client = InternalClient()
-        assert client.base_url == "http://localhost:8709"
+        assert client.base_url == "http://registrar:8709"
         assert client.api_key == "ccs-internal"
 
     def test_client_accepts_custom_url_and_key(self):

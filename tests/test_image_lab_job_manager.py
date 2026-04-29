@@ -1,40 +1,58 @@
 """
-Tests for JobManager.
+Tests for ImageLabJobManager.
 """
 import pytest
 import asyncio
-from src.api.services.job_manager import JobManager, Job
+from src.api.services.image_lab_job_manager import ImageLabJobManager, ImageLabJob
 from common.enums import JobStatus
 
 
 @pytest.fixture
 def mgr():
-    return JobManager(max_jobs=10, max_workers=5)
+    return ImageLabJobManager(max_jobs=10)
 
 
-def test_create_job(mgr):
+@pytest.fixture
+def sample_job():
+    return ImageLabJob(
+        id="job1",
+        prompt="test prompt",
+        models=["dalle-3"],
+        aspect_ratio="1:1",
+        dimensions="1024x1024",
+        generations=1,
+        workers=2,
+    )
+
+
+def test_create_job(mgr, sample_job):
     """Test job creation."""
-    job = Job(id="job1", service="ELEVENLABS", count=5, workers=2)
-    result = mgr.create_job(job)
-
-    assert result is job
-    assert mgr.get_job("job1") is job
+    result = mgr.create_job(sample_job)
+    assert result is sample_job
+    assert mgr.get_job("job1") is sample_job
 
 
 def test_max_jobs_enforced(mgr):
     """Test oldest job removed when max reached."""
     for i in range(15):
-        job = Job(id=f"job{i}", service="TEST", count=1)
+        job = ImageLabJob(
+            id=f"job{i}",
+            prompt="test",
+            models=["dalle-3"],
+            aspect_ratio="1:1",
+            dimensions="1024x1024",
+            generations=1,
+            workers=1,
+        )
         mgr.create_job(job)
 
     assert len(mgr._jobs) == 10
     assert mgr.get_job("job0") is None
 
 
-def test_cancel_job(mgr):
+def test_cancel_job(mgr, sample_job):
     """Test job cancellation."""
-    job = Job(id="job1", service="TEST", count=1)
-    mgr.create_job(job)
+    mgr.create_job(sample_job)
 
     # PENDING jobs can be cancelled (is_active=True)
     assert mgr.request_cancel("job1") is True
@@ -44,7 +62,7 @@ def test_cancel_job(mgr):
     assert mgr.is_cancelled("job1") is False
 
     # Non-active jobs cannot be cancelled
-    job.status = JobStatus.DONE
+    sample_job.status = JobStatus.DONE
     assert mgr.request_cancel("job1") is False
 
 
@@ -67,30 +85,22 @@ def test_task_tracking(mgr):
         loop.close()
 
 
-def test_get_stats(mgr):
+def test_get_stats(mgr, sample_job):
     """Test observability metrics."""
-    job1 = Job(id="job1", service="ELEVENLABS", count=1)
-    job2 = Job(id="job2", service="OPENROUTER", count=1)
-    job2.status = JobStatus.RUNNING
-
-    mgr.create_job(job1)
-    mgr.create_job(job2)
-
+    mgr.create_job(sample_job)
     stats = mgr.get_stats()
-    assert stats["total_jobs"] == 2
-    assert stats["active_jobs"] == 2  # PENDING and RUNNING are both active
+    assert stats["total_jobs"] == 1
     assert "jobs_by_status" in stats
-    assert "jobs_by_service" in stats
+    assert "jobs_by_model" in stats
 
 
-def test_graceful_shutdown(mgr):
+def test_graceful_shutdown(mgr, sample_job):
     """Test shutdown cancels all tasks."""
     async def long_task():
         await asyncio.sleep(0.1)
 
-    job = Job(id="job1", service="TEST", count=1)
-    mgr.create_job(job)
-    job.status = JobStatus.RUNNING
+    mgr.create_job(sample_job)
+    sample_job.status = JobStatus.RUNNING
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)

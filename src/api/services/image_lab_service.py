@@ -2,10 +2,10 @@
 image_lab_service.py — Orchestration cho Image Lab jobs.
 
 FP design (mirror registration_service.py):
-  - Job là dataclass, mutable vì cần update status trong quá trình chạy
-  - JobStore là module-level dict, truy cập qua pure functions
+  - ImageLabJob là dataclass, mutable vì cần update status trong quá trình chạy
+  - ImageLabJobManager instance access qua get_app_context()
   - make_stream_log_fn(): factory log fn vừa broadcast WS vừa ghi file
-  - run_job(): nhận bus qua DI, không access global state ngoài JobStore
+  - run_job(): nhận bus qua DI, không access global state ngoài manager
 
 Public API:
   create_job(prompt, models, aspect_ratio, dimensions, generations, workers) → ImageLabJob
@@ -19,9 +19,8 @@ from __future__ import annotations
 import asyncio
 import traceback
 import uuid
-from dataclasses import dataclass, field
-from datetime import datetime, UTC
 from pathlib import Path
+from typing import Any
 
 from ...config.settings import load_config
 from common.logger import LogHandle, make_logger, log_info
@@ -29,34 +28,17 @@ from ...services.artificialanalysis_ai.image_lab import ImageLabParams
 from ...services.artificialanalysis_ai.runner import run_multi_account
 from ..ws.log_manager import LogBus, broadcast, cleanup_job
 from common.enums import JobStatus
+from common.context import get_app_context
+
+from .image_lab_job_manager import ImageLabJobManager, ImageLabJob
 
 
-# ── Job dataclass ─────────────────────────────────────────────────────
-
-@dataclass
-class ImageLabJob:
-    id: str
-    prompt: str
-    models: list[str]
-    aspect_ratio: str
-    dimensions: str
-    generations: int
-    workers: int
-    status: JobStatus = JobStatus.PENDING
-    created_at: str = field(
-        default_factory=lambda: datetime.now(UTC).isoformat()
-    )
-    total_accounts: int = 0
-    completed_accounts: int = 0
-    image_paths: list[str] = field(default_factory=list)
-    error: str | None = None
-
-
-# ── JobStore ──────────────────────────────────────────────────────────
-
-_store: dict[str, ImageLabJob] = {}
-_cancel_flags: dict[str, bool] = {}
-_tasks: dict[str, asyncio.Task] = {}
+def _get_job_manager() -> ImageLabJobManager:
+    """Get ImageLabJobManager from app context."""
+    mgr = get_app_context().image_lab_manager
+    if mgr is None:
+        raise RuntimeError("ImageLabJobManager not initialized in app context")
+    return mgr
 
 
 def create_job(
@@ -67,7 +49,7 @@ def create_job(
     generations: int = 1,
     workers: int = 3,
 ) -> ImageLabJob:
-    max_jobs = load_config().registration.max_jobs
+    mgr = _get_job_manager()
     job = ImageLabJob(
         id=str(uuid.uuid4()),
         prompt=prompt,
@@ -77,30 +59,19 @@ def create_job(
         generations=generations,
         workers=max(1, workers),
     )
-    if len(_store) >= max_jobs:
-        oldest = next(iter(_store))
-        del _store[oldest]
-    _store[job.id] = job
-    return job
+    return mgr.create_job(job)
 
 
 def get_job(job_id: str) -> ImageLabJob | None:
-    return _store.get(job_id)
+    return _get_job_manager().get_job(job_id)
 
 
 def list_jobs() -> list[ImageLabJob]:
-    return list(_store.values())
+    return _get_job_manager().list_jobs()
 
 
 def cancel_job(job_id: str) -> bool:
-    job = _store.get(job_id)
-    if not job or not job.status.is_active:
-        return False
-    _cancel_flags[job_id] = True
-    task = _tasks.get(job_id)
-    if task:
-        task.cancel()
-    return True
+    return _get_job_manager().request_cancel(job_id)
 
 
 # ── Log fn factory ────────────────────────────────────────────────────
@@ -124,6 +95,7 @@ async def _run_task(job: ImageLabJob, bus: LogBus) -> None:
     cfg = load_config()
     log_handle = make_logger(cfg.base_dir / "logs", f"imagelab_{job.id[:8]}")
     log_fn = make_stream_log_fn(bus, job.id, log_handle)
+    mgr = _get_job_manager()
 
     job.status = JobStatus.RUNNING
     log_fn(f"▶ Image Lab job {job.id[:8]} started")
@@ -158,14 +130,19 @@ async def _run_task(job: ImageLabJob, bus: LogBus) -> None:
         log_fn(f"❌ Failed: {exc}")
         log_fn(traceback.format_exc())
     finally:
-        _tasks.pop(job.id, None)
-        _cancel_flags.pop(job.id, None)
-        await cleanup_job(bus, job.id)
+        mgr.untrack_task(job.id)
+        mgr.clear_cancel(job.id)
+        cleanup_job(bus, job.id)
 
 
 def run_job(job_id: str, bus: LogBus) -> None:
-    job = _store.get(job_id)
+    job = _get_job_manager().get_job(job_id)
     if not job:
         raise KeyError(f"Job {job_id} not found")
     task = asyncio.ensure_future(_run_task(job, bus))
-    _tasks[job_id] = task
+    _get_job_manager().track_task(job_id, task)
+
+
+def get_stats() -> dict[str, Any]:
+    """Observability metrics."""
+    return _get_job_manager().get_stats()

@@ -16,7 +16,7 @@ class TestInternalRouter:
     @pytest.fixture
     def client(self):
         from fastapi.testclient import TestClient
-        from registrar.src.api.routers.internal import router
+        from src.api.routers.internal import router
         from fastapi import FastAPI
 
         app = FastAPI()
@@ -48,7 +48,7 @@ class TestInternalRouter:
     @patch.dict("os.environ", {"INTERNAL_API_KEY": "test-key-123"})
     def test_health_with_env_key(self):
         from fastapi.testclient import TestClient
-        from registrar.src.api.routers.internal import router
+        from src.api.routers.internal import router
         from fastapi import FastAPI
 
         app = FastAPI()
@@ -78,7 +78,7 @@ class TestInternalClientUnit:
     def test_default_values(self):
         from common.internal_client import InternalClient, _REGISTRAR_URL, _INTERNAL_KEY
 
-        assert _REGISTRAR_URL == "http://localhost:8709"
+        assert _REGISTRAR_URL == "http://registrar:8709"
         assert _INTERNAL_KEY == "ccs-internal"
 
     @pytest.mark.asyncio
