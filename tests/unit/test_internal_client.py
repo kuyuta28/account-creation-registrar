@@ -87,6 +87,38 @@ class TestInternalClient:
             assert result is False
 
     @pytest.mark.asyncio
+    async def test_list_accounts_unwraps_paginated_contract(self):
+        from common.internal_client import InternalClient
+        async with InternalClient() as client:
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.json.return_value = {
+                "data": {
+                    "accounts": [{"email": "a@test.com"}],
+                    "total": 1,
+                    "page": 1,
+                    "limit": 100,
+                    "pages": 1,
+                }
+            }
+            client._client.get = AsyncMock(return_value=mock_resp)
+
+            result = await client.list_accounts("TEST")
+            assert result == [{"email": "a@test.com"}]
+
+    @pytest.mark.asyncio
+    async def test_list_accounts_accepts_legacy_direct_list(self):
+        from common.internal_client import InternalClient
+        async with InternalClient() as client:
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.json.return_value = {"data": [{"email": "legacy@test.com"}]}
+            client._client.get = AsyncMock(return_value=mock_resp)
+
+            result = await client.list_accounts()
+            assert result == [{"email": "legacy@test.com"}]
+
+    @pytest.mark.asyncio
     async def test_health_check_returns_true_when_healthy(self):
         from common.internal_client import InternalClient
         async with InternalClient() as client:
