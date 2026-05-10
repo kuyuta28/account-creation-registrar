@@ -2,6 +2,8 @@
 
 Core service — tự động đăng ký tài khoản trên các AI/SaaS platform.
 
+> Runtime note: root orchestration publishes `registrar` on port `8709`. Older service-local examples that mention `8799` are legacy local-dev references and must not be used as platform runtime truth.
+
 ## Run
 
 ```bash

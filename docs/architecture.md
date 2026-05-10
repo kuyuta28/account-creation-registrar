@@ -1,5 +1,7 @@
 # Architecture
 
+> Runtime note: root orchestration publishes `registrar`, `mail-service`, `aa-proxy`, and `tts-proxy` on ports `8709`, `8701`, `8702`, and `8700`. Older service-local examples in this document that mention `8799` or `880x` are legacy local-dev references.
+
 ## Repository Structure
 
 ```

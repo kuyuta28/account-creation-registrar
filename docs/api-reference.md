@@ -1,6 +1,7 @@
 ﻿# API Reference
 
-> Base URL: `http://localhost:8799/api/v1`  
+> Platform runtime Base URL: `http://localhost:8709/api/v1`  
+> Legacy local-dev examples may mention `http://localhost:8799/api/v1`; root orchestration docs are authoritative for platform runtime.  
 > Tất cả response đều wrap trong **ApiResponse envelope** (xem [Response Envelope](#response-envelope)).  
 > Tất cả timestamp là **UTC ISO 8601**: `"2026-04-02T10:00:00Z"`
 
@@ -87,7 +88,7 @@
 
 
 ### Router Prefixes
-Base URL: `http://localhost:8799/api/v1`  
+Platform runtime Base URL: `http://localhost:8709/api/v1`  
 Moi router co prefix co dinh. **Khong duoc doi** - thay doi se break frontend va docs.
 
 | File router | Prefix | Full base path |
