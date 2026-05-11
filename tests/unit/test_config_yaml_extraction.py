@@ -1,13 +1,7 @@
 """Tests cho registrar config loading — Google OAuth, Mail, CORS."""
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import pytest
-
-# Inject common package path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "common" / "src"))
 
 from src.config.settings import (
     GoogleOAuthConfig,

@@ -11,14 +11,9 @@ Pattern: AAA, async tests dùng pytest-asyncio hoặc asyncio.run
 from __future__ import annotations
 
 import asyncio
-import sys
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-_ROOT = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(_ROOT))
 
 
 # ── src/mail/_base.py ─────────────────────────────────────────────────────────
@@ -149,10 +144,10 @@ class TestNormalizeProviders:
             _normalize_providers(["  ", "", "   "])
 
     def test_raises_when_none(self):
-        from src.mail.client import _normalize_providers
-        # None → falls back to MAIL_TM_BASES (not empty)
-        result = _normalize_providers(None)
-        assert len(result) > 0
+        from src.mail import client
+        with patch("src.mail.client.get_mail_tm_bases", return_value=("https://api.mail.tm",)):
+            result = client._normalize_providers(None)
+        assert result == ("https://api.mail.tm",)
 
     def test_returns_tuple(self):
         from src.mail.client import _normalize_providers

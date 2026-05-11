@@ -9,13 +9,8 @@ Bao phủ:
 from __future__ import annotations
 
 import asyncio
-import sys
-from pathlib import Path
 
 import pytest
-
-_ROOT = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(_ROOT))
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
