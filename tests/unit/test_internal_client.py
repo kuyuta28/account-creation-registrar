@@ -30,6 +30,15 @@ class TestInternalClient:
             assert client._client is not None
 
     @pytest.mark.asyncio
+    async def test_context_manager_uses_documented_timeout(self):
+        from common.internal_client import InternalClient
+        with patch("httpx.AsyncClient") as async_client:
+            async_client.return_value.aclose = AsyncMock()
+            async with InternalClient():
+                pass
+        assert async_client.call_args.kwargs["timeout"] == 30.0
+
+    @pytest.mark.asyncio
     async def test_get_account_returns_data(self):
         from common.internal_client import InternalClient
         async with InternalClient() as client:
