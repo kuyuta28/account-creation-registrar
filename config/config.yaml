@@ -32,6 +32,7 @@ api:
   cors_origins:
     - http://localhost:1420
     - http://localhost:1421
+    - http://127.0.0.1:1421
     - tauri://localhost
     - https://tauri.localhost
 google_oauth:
@@ -75,14 +76,6 @@ proxy:
   server: http://171.236.85.75:34767
   username: toims_nanht
   password: QmZf8mSj
-
-# AAR (any-auto-register) section
-aar:
-  base_url: "http://localhost:8080"
-  platforms_timeout_sec: 5
-  create_task_timeout_sec: 30
-  snapshot_timeout_sec: 10
-  cancel_timeout_sec: 10
 
 # Checker concurrency
 checker:

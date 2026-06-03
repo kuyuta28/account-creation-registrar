@@ -190,19 +190,6 @@ class MailConfig:
     gmail_search_url_template: str = "https://mail.google.com/mail/u/0/#search/{query}"
     sms_store_cap: int = 500
 
-    def providers_for(self, service: str = "") -> tuple[str, ...]:
-        """Query DB cho active mail providers. service='' → tất cả. Trả tuple rỗng nếu không có."""
-        from common.database import get_mail_providers
-        try:
-            rows = get_mail_providers(
-                self.db_path,
-                service_tag=service.lower() if service else None,
-            )
-        except Exception:
-            return ()
-        return tuple(r["connection_str"] for r in rows)
-
-
 @dataclass(frozen=True)
 class GoogleOAuthConfig:
     login_url: str = "https://accounts.google.com/signin/v2/identifier"
@@ -231,23 +218,6 @@ class GoogleOAuthConfig:
     popup_max_iterations: int = 30
     login_max_iterations: int = 20
     popup_deadline_multiplier: int = 3
-
-    @property
-    def all_providers(self) -> tuple[str, ...]:
-        return self.providers_for()
-
-    def providers_for(self, service: str = "") -> tuple[str, ...]:
-        """Query DB cho active mail providers. service='' → tất cả. Trả tuple rỗng nếu không có."""
-        from common.database import get_mail_providers
-        try:
-            rows = get_mail_providers(
-                self.db_path,
-                service_tag=service.lower() if service else None,
-            )
-        except Exception:
-            return ()
-        return tuple(r["connection_str"] for r in rows)
-
 
 @dataclass(frozen=True)
 class LogConsoleConfig:
@@ -409,15 +379,6 @@ class OpenRouterConfig:
 
 
 @dataclass(frozen=True)
-class AarConfig:
-    base_url: str = "http://localhost:8080"
-    platforms_timeout_sec: int = 5
-    create_task_timeout_sec: int = 30
-    snapshot_timeout_sec: int = 10
-    cancel_timeout_sec: int = 10
-
-
-@dataclass(frozen=True)
 class CheckerConfig:
     batch_concurrency: int = 10
     check_and_clean_concurrency: int = 20
@@ -462,7 +423,6 @@ class AppConfig:
     auth_sync: AuthSyncConfig = field(default_factory=AuthSyncConfig)
     cliproxy_sync: ClipRoxySyncConfig = field(default_factory=ClipRoxySyncConfig)
     sentry: SentryConfig = field(default_factory=SentryConfig)
-    aar: AarConfig = field(default_factory=AarConfig)
     checker: CheckerConfig = field(default_factory=CheckerConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     proxy: ProxyConfig | None = None
@@ -567,37 +527,9 @@ def _parse_cliproxy_sync(raw: dict) -> ClipRoxySyncConfig:
     return _parse_section_strict(ClipRoxySyncConfig, raw, "cliproxy_sync")
 
 
-def _auto_seed_mailslurp_keys(db_path: Path, keys: list[str]) -> None:
-    """Seed mailslurp keys từ yaml vào mail_providers table (idempotent)."""
-    from common.database import upsert_mail_provider, get_mail_providers
-    existing = {r["connection_str"] for r in get_mail_providers(db_path)}
-    for key in keys:
-        if f"mailslurp.com:{key}" not in existing:
-            label = f"mailslurp.com:...{key[-8:]}"
-            upsert_mail_provider(db_path, "mailslurp.com", api_key=key, label=label)
-
-
-def _auto_seed_free_providers(db_path: Path) -> None:
-    """Seed FREE providers (no API key needed): mail.tm, guerrillamail.com."""
-    from common.database import upsert_mail_provider, get_mail_providers
-    existing = {r["connection_str"] for r in get_mail_providers(db_path)}
-    # mail.tm — server_id chứa base URL
-    if "https://api.mail.tm" not in existing:
-        upsert_mail_provider(db_path, "mail.tm", api_key="", server_id="https://api.mail.tm", label="mail.tm")
-    # Guerrilla Mail — không cần key
-    if "guerrillamail.com" not in existing:
-        upsert_mail_provider(db_path, "guerrillamail.com", api_key="", server_id="", label="Guerrilla Mail")
-
-
 def seed_mail_providers(cfg: AppConfig) -> None:
-    """Auto-seed mail providers from config (mailslurp keys + free providers).
-    Call this once at startup, after load_config()."""
-    raw = _load_raw(cfg.base_dir)
-    mail_raw = _require_section(raw, "mail")
-    mailslurp_keys = [str(k).strip() for k in mail_raw.get("mailslurp_api_keys", []) if str(k).strip()]
-    if mailslurp_keys:
-        _auto_seed_mailslurp_keys(cfg.mail.db_path, mailslurp_keys)
-    _auto_seed_free_providers(cfg.mail.db_path)
+    """Mail providers are seeded through PostgreSQL migration/import paths."""
+    return None
 
 
 def _parse_mail(raw: dict, db_path: Path) -> MailConfig:
@@ -669,12 +601,6 @@ def _parse_api(raw: dict) -> ApiConfig:
     return _parse_section_strict(ApiConfig, raw, "api")
 
 
-def _parse_aar(raw: dict | None) -> AarConfig:
-    if not raw:
-        return AarConfig()
-    return _parse_section_strict(AarConfig, raw, "aar")
-
-
 def _parse_checker(raw: dict | None) -> CheckerConfig:
     if not raw:
         return CheckerConfig()
@@ -734,7 +660,6 @@ def load_config(path: Path | None = None) -> AppConfig:
         auth_sync=_parse_auth_sync(_require_section(raw, "auth_sync")),
         cliproxy_sync=_parse_cliproxy_sync(_require_section(raw, "cliproxy_sync")),
         sentry=_parse_section_strict(SentryConfig, _require_section(raw, "sentry"), "sentry"),
-        aar=_parse_aar(raw.get("aar")),
         checker=_parse_checker(raw.get("checker")),
         database=_parse_database(raw.get("database")),
         proxy=_parse_proxy(raw.get("proxy", {})),

@@ -245,13 +245,12 @@ class TestRunWorker:
         from src.api.services.registration_service import _run_worker, create_job
 
         with patch("src.services.registry.make_registrar", return_value=None):
-            with patch("src.api.services.aar_client.aar_platforms", new_callable=AsyncMock, return_value={"ELEVENLABS"}):
-                with patch("src.api.services.registration_service.load_config",
+            with patch("src.api.services.registration_service.load_config",
                        return_value=MagicMock(registration=MagicMock(max_jobs=100, max_workers=10, max_consecutive_fails=3))):
-                    job = create_job("unknown_svc", 1)
-                    log_fn = MagicMock()
-                    save_fn = MagicMock()
-                    asyncio.run(_run_worker(job, log_fn, save_fn, job_manager))
+                job = create_job("unknown_svc", 1)
+                log_fn = MagicMock()
+                save_fn = MagicMock()
+                asyncio.run(_run_worker(job, log_fn, save_fn, job_manager))
 
         assert job.status == JobStatus.FAILED
         assert "unknown_svc" in (job.error or "").lower()

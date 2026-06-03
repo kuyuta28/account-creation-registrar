@@ -10,7 +10,6 @@ account-creation/          ← root container (không có git)
 ├── aa-proxy/              ← image proxy (git riêng, port 8802)
 ├── tts-proxy/             ← TTS proxy (git riêng, port 8800)
 ├── mail-service/          ← mail service (git riêng, port 8801)
-└── any-auto-register/     ← external submodule
 ```
 
 Mỗi service **độc lập**: git riêng, pyproject riêng, run độc lập. Root là plain folder container, không có `.git`.

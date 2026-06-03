@@ -1,4 +1,4 @@
-﻿"""
+"""
 run_api.py - Start FastAPI backend server.
 """
 import asyncio
@@ -7,15 +7,10 @@ import os
 import sys
 from pathlib import Path
 
-import uvicorn
+from uvicorn.main import run as uvicorn_run
 
 # Inject common package vào sys.path
 sys.path.insert(0, str(Path(__file__).parent.parent / "common" / "src"))
-
-# Thêm zc-zhangchen/any-auto-register vào sys.path để dùng trực tiếp
-_zc_path = Path(__file__).parent / "any-auto-register"
-if _zc_path.exists():
-    sys.path.insert(0, str(_zc_path))
 
 _log = logging.getLogger("app.unhandled")
 
@@ -55,7 +50,7 @@ if __name__ == "__main__":
     loop.set_exception_handler(_async_exception_handler)
     asyncio.set_event_loop(loop)
 
-    uvicorn.run(
+    uvicorn_run(
         "src.api.server:app",
         host=os.getenv("API_HOST", "0.0.0.0"),
         port=int(os.getenv("API_PORT", "8709")),
@@ -63,3 +58,4 @@ if __name__ == "__main__":
         reload_dirs=["src"],
         loop="none",  # dùng loop ta đã tạo bên trên
     )
+

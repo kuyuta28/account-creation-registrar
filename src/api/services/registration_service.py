@@ -23,7 +23,6 @@ from datetime import datetime
 from typing import NamedTuple
 
 from ...config.settings import load_config
-from src.core.storage import Repo, init_repo, make_save_fn
 from common.logger import LogHandle, make_logger, log_info
 from ...services.errors import FatalRegistrationError
 from ..ws.log_manager import LogBus, broadcast, cleanup_job
@@ -107,35 +106,6 @@ async def _run_worker(job: Job, log_fn: LogFn, save_fn: SaveFn, mgr: JobManager)
     from ...services.registry import make_registrar
 
     cfg = load_config()
-
-    # ── Delegate sang any-auto-register nếu service thuộc AAR ────────
-    from .aar_client import aar_platforms, run_aar_job
-    aar_svc = await aar_platforms()
-    if job.service.upper() in aar_svc:
-        job.status = JobStatus.RUNNING
-        try:
-            created = await run_aar_job(
-                platform=job.service,
-                count=job.count,
-                workers=job.workers,
-                log_fn=log_fn,
-            )
-            job.created_count = created
-            job.processed_count = job.count
-            job.status = JobStatus.DONE
-            log_fn(f"\n✅ Done (via any-auto-register): {created}/{job.count}")
-        except asyncio.CancelledError:
-            job.status = JobStatus.STOPPED
-            job.error  = "Người dùng dừng job"
-            log_fn("\n🛑 Người dùng dừng job")
-            raise
-        except Exception as exc:  # noqa: BLE001 — top-level job runner: catch all to update job status
-            job.status = JobStatus.FAILED
-            job.error  = str(exc)
-            log_fn(f"\n❌ AAR Error: {exc}")
-        finally:
-            mgr.clear_cancel(job.id)
-        return
 
     # Validate service trước khi bắt đầu (local registrar)
     if make_registrar(job.service.upper(), cfg) is None:
@@ -294,6 +264,21 @@ async def _run_worker(job: Job, log_fn: LogFn, save_fn: SaveFn, mgr: JobManager)
 
 # ── Public runner ─────────────────────────────────────────────────────
 
+def _make_save_fn() -> SaveFn:
+    def _save(record) -> None:
+        from .account_service import add_account
+        asyncio.run(add_account(
+            record.service,
+            record.email,
+            api_key=getattr(record, "api_key", ""),
+            password=getattr(record, "password", ""),
+            totp_secret=getattr(record, "totp_secret", ""),
+            app_password=getattr(record, "app_password", ""),
+            source_email=getattr(record, "source_email", ""),
+        ))
+    return _save
+
+
 def run_job(job_id: str, bus: LogBus) -> None:
     """
     Khởi động job trong asyncio background task.
@@ -310,9 +295,7 @@ def run_job(job_id: str, bus: LogBus) -> None:
     file_logger = make_logger(f"job.{job_id[:8]}", cfg.log, cfg.base_dir, log_file_override=log_file)
     log_fn = make_stream_log_fn(bus, job_id, file_logger)
 
-    repo = Repo(base_dir=cfg.base_dir, auth_sync=cfg.auth_sync, cliproxy_sync=cfg.cliproxy_sync)
-    init_repo(repo)
-    save_fn: SaveFn = make_save_fn(repo)
+    save_fn = _make_save_fn()
 
     async def _worker_with_cleanup() -> None:
         try:

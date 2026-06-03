@@ -26,7 +26,6 @@ from ._base import (
     _DEFAULT_COOLDOWN_SEC, _DEFAULT_MAX_CONSECUTIVE_FAILS,
 )
 from .providers import mail_tm, mailslurp_com, testmail_app, guerrillamail_com, mailosaur_com, gmail, sms_webhook
-from .providers import aar_adapter
 
 __all__ = [
     "LogFn",
@@ -101,8 +100,6 @@ def _rotated_providers(providers: Sequence[str] | None) -> tuple[str, ...]:
 
 async def _create_mailbox_on_provider(provider: str, log_fn: LogFn | None = None) -> Mailbox:
     match provider_kind(provider):
-        case "aar":
-            return await aar_adapter.create_mailbox(provider, log_fn=log_fn)
         case "mailslurp.com":
             return await mailslurp_com.create_mailbox(provider, log_fn=log_fn)
         case "testmail.app":
@@ -191,8 +188,6 @@ def make_gmail_mailbox(email: str, app_password: str) -> Mailbox:
 
 
 async def get_messages(box: Mailbox) -> list[dict]:
-    if box.provider.startswith("aar:"):
-        return await aar_adapter.get_messages(box)
     match box.provider:
         case "mailslurp.com":
             return await mailslurp_com.get_messages(box)
@@ -211,8 +206,6 @@ async def get_messages(box: Mailbox) -> list[dict]:
 
 
 async def get_message_body(box: Mailbox, message_id: str) -> str:
-    if box.provider.startswith("aar:"):
-        return await aar_adapter.get_message_body(box, message_id)
     match box.provider:
         case "mailslurp.com":
             return await mailslurp_com.get_message_body(box, message_id)
@@ -242,15 +235,6 @@ async def wait_for_message(
     poll_interval: int = 5,
     log_fn: LogFn | None = None,
 ) -> dict | None:
-    if box.provider.startswith("aar:"):
-        return await aar_adapter.wait_for_message(
-            box,
-            from_contains=from_contains,
-            subject_contains=subject_contains,
-            timeout=timeout,
-            poll_interval=poll_interval,
-            log_fn=log_fn,
-        )
     match box.provider:
         case "mailslurp.com":
             return await mailslurp_com.wait_for_message(box, from_contains, subject_contains, timeout, log_fn=log_fn)
