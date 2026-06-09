@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from ...config.settings import load_config
 from common.database import (
+    _UNSET,
     block_mailbox_for_service,
     check_gmail_variations_availability,
     delete_mailbox_record,
@@ -84,13 +85,16 @@ def _map_inbox_errors(exc: Exception) -> AppError:
 # -- Mailbox schemas ------------------------------------------------------------
 
 class UpsertMailboxBody(BaseModel):
+    # Use `None` (= "do not touch the existing value") as the default instead of
+    # "" so a POST that does not mention totp_secret/app_password no longer
+    # wipes them. An explicit "" remains a valid deliberate clear.
     email: str
-    app_password: str = ""
-    totp_secret: str = ""
-    password: str = ""
-    source_email: str = ""
-    label: str = ""
-    disabled: bool = False
+    app_password: str | None = None
+    totp_secret: str | None = None
+    password: str | None = None
+    source_email: str | None = None
+    label: str | None = None
+    disabled: bool | None = None
 
 
 class PatchMailboxBody(BaseModel):
@@ -144,10 +148,17 @@ async def upsert_mailbox(body: UpsertMailboxBody):
         raise AppError(ErrorCode.VALIDATION, f"Kh�ng ph?i Gmail h?p l?: {body.email!r}", 400)
 
     canonical = normalize_gmail(body.email)
+    # Pass `_UNSET` for any field the caller left as None. Empty string is
+    # still a deliberate clear. See `UpsertMailboxBody` docstring.
     mailbox = await asyncio.to_thread(
         upsert_mailbox_record,
-        _db_path(), canonical, body.app_password, body.totp_secret,
-        body.password, body.source_email, body.label, body.disabled,
+        _db_path(), canonical,
+        body.app_password  if body.app_password  is not None else _UNSET,
+        body.totp_secret   if body.totp_secret   is not None else _UNSET,
+        body.password      if body.password      is not None else _UNSET,
+        body.source_email  if body.source_email  is not None else _UNSET,
+        body.label         if body.label         is not None else _UNSET,
+        body.disabled      if body.disabled      is not None else _UNSET,
     )
     return ok(mailbox)
 

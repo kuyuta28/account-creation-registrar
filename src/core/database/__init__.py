@@ -1,4 +1,4 @@
-﻿"""
+"""
 database/__init__.py — Public API re-exports.
 
 Tất cả imports từ code ngoài phải dùng:
@@ -30,6 +30,7 @@ from ._accounts import (
     upsert_account,
 )
 from ._mailboxes import (
+    _UNSET,
     block_mailbox_for_service,
     delete_sms_phone,
     delete_mailbox_record,

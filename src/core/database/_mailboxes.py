@@ -1,4 +1,4 @@
-﻿"""
+"""
 database/_mailboxes.py — Gmail mailbox CRUD + service blocks.
 Mailboxes are stored as accounts(service='GMAIL').
 Label field is now fully supported per API docs.
@@ -11,6 +11,13 @@ from typing import Any
 from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
+
+# Sentinel for "do not change this column" semantics in upsert_mailbox_record.
+# Callers can pass `_UNSET` (or omit the kwarg) to leave the column untouched on
+# conflict. Passing "" (or any other value, including None) overwrites the
+# existing value with that value. This prevents the historical bug where a
+# PATCH/POST that did not mention totp_secret wiped the stored secret to ''.
+_UNSET: Any = object()
 
 from ._engine import (
     _Account, _AccountGmail, _MailboxServiceBlock, _get_engine, _now,
@@ -62,51 +69,87 @@ def get_mailbox_record(db_path: Path, email: str) -> dict[str, Any] | None:
 def upsert_mailbox_record(
     db_path: Path,
     email: str,
-    app_password: str = "",
-    totp_secret: str = "",
-    password: str = "",
-    source_email: str = "",
-    label: str = "",
-    disabled: bool = False,
+    app_password: Any = _UNSET,
+    totp_secret: Any = _UNSET,
+    password: Any = _UNSET,
+    source_email: Any = _UNSET,
+    label: Any = _UNSET,
+    disabled: Any = _UNSET,
 ) -> dict[str, Any]:
-    """Insert hoặc update Gmail mailbox. Trả về dict mailbox sau khi lưu."""
+    """Insert hoặc update Gmail mailbox. Trả về dict mailbox sau khi lưu.
+
+    Important contract:
+      - Each "settable" parameter defaults to `_UNSET`, NOT to "" or None.
+      - On INSERT (no existing row): missing fields are filled with the schema
+        defaults (typically ""), same as the column defaults.
+      - On UPDATE (row already exists): only the fields the caller actually
+        passes (i.e. anything other than `_UNSET`) are written. Anything left
+        as `_UNSET` is preserved from the existing row. This prevents the
+        historical bug where a PATCH/POST that did not mention `totp_secret`
+        silently wiped the stored secret to "".
+      - If the caller wants to explicitly CLEAR a field (e.g. totp_secret=""),
+        they pass the empty string. That is a deliberate write.
+    """
     canonical = email.strip().lower()
     now = _now()
     with Session(_get_engine(db_path)) as s:
         _ensure_service_exists(s, "GMAIL")
-        # Upsert base
-        s.execute(
-            sqlite_insert(_Account)
-            .values(
-                service="GMAIL", email=canonical,
-                password=password, source_email=source_email,
-                disabled=disabled, session_state="",
-                check_status="", last_checked="", last_error="",
-                created_at=now, updated_at=now,
-            )
-            .on_conflict_do_update(
-                index_elements=["service", "email"],
-                set_={
-                    "password":     password,
-                    "source_email": source_email,
-                    "disabled":     disabled,
-                    "updated_at":   now,
-                },
-            )
-        )
-        s.flush()
-        row = s.scalars(
+
+        existing = s.scalars(
             select(_Account).where(_Account.service == "GMAIL", _Account.email == canonical)
         ).first()
-        # Upsert Gmail extension
-        s.execute(
-            sqlite_insert(_AccountGmail)
-            .values(account_id=row.id, totp_secret=totp_secret, app_password=app_password, label=label)
-            .on_conflict_do_update(
-                index_elements=["account_id"],
-                set_={"totp_secret": totp_secret, "app_password": app_password, "label": label},
-            )
-        )
+
+        if existing is None:
+            # INSERT: only fill the columns the caller mentioned. Anything
+            # _UNSET falls back to the column default at the SQLAlchemy layer.
+            insert_values: dict[str, Any] = {
+                "service": "GMAIL", "email": canonical,
+                "session_state": "", "check_status": "", "last_checked": "",
+                "last_error": "", "created_at": now, "updated_at": now,
+            }
+            if password     is not _UNSET: insert_values["password"]     = password
+            if source_email is not _UNSET: insert_values["source_email"] = source_email
+            if disabled     is not _UNSET: insert_values["disabled"]     = disabled
+            s.execute(sqlite_insert(_Account).values(**insert_values))
+            s.flush()
+            row = s.scalars(
+                select(_Account).where(_Account.service == "GMAIL", _Account.email == canonical)
+            ).first()
+        else:
+            # UPDATE: only write fields the caller explicitly passed.
+            update_values: dict[str, Any] = {"updated_at": now}
+            if password     is not _UNSET: update_values["password"]     = password
+            if source_email is not _UNSET: update_values["source_email"] = source_email
+            if disabled     is not _UNSET: update_values["disabled"]     = disabled
+            if update_values.keys() != {"updated_at"}:
+                s.execute(
+                    update(_Account)
+                    .where(_Account.service == "GMAIL", _Account.email == canonical)
+                    .values(**update_values)
+                )
+            row = existing
+
+        # Gmail extension row: same contract.
+        assert row is not None
+        ext_existing = _get_gmail_ext(s, row)
+        if ext_existing is None:
+            ext_values: dict[str, Any] = {"account_id": row.id}
+            if app_password is not _UNSET: ext_values["app_password"] = app_password
+            if totp_secret  is not _UNSET: ext_values["totp_secret"]  = totp_secret
+            if label        is not _UNSET: ext_values["label"]        = label
+            s.execute(sqlite_insert(_AccountGmail).values(**ext_values))
+        else:
+            ext_update: dict[str, Any] = {}
+            if app_password is not _UNSET: ext_update["app_password"] = app_password
+            if totp_secret  is not _UNSET: ext_update["totp_secret"]  = totp_secret
+            if label        is not _UNSET: ext_update["label"]        = label
+            if ext_update:
+                s.execute(
+                    update(_AccountGmail)
+                    .where(_AccountGmail.account_id == row.id)
+                    .values(**ext_update)
+                )
+
         s.commit()
         ext = _get_gmail_ext(s, row)
     return _to_mailbox_dict(row, ext)  # type: ignore[arg-type]
