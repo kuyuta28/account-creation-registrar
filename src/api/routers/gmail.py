@@ -61,6 +61,19 @@ _OPEN_BROWSER_SCRIPT = Path(__file__).parent.parent / "tools" / "open_browser_se
 
 
 def _db_path():
+    """Resolve the SQLite db_path. Refuses to run when DATABASE_URL is set
+    so the call site does not silently fall back to the legacy SQLite file
+    while the rest of the platform is on PostgreSQL. Operators that want
+    async/Postgres must add `_is_async_mode`-aware wrappers (see
+    `mailbox_dispatcher.py`) and migrate each call site.
+    """
+    if load_config().database.database_url:
+        raise RuntimeError(
+            "DATABASE_URL is set; this endpoint still uses the SQLite "
+            "mailbox helpers in common.database. Migrate the gmail router "
+            "to the async *_async helpers in common.database._async before "
+            "deploying with DATABASE_URL."
+        )
     return db_path(load_config().base_dir)
 
 
