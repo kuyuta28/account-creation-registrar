@@ -65,7 +65,7 @@ USER app
 EXPOSE 8709
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD wget -qO- http://127.0.0.1:8709/api/health || exit 1
+    CMD wget -qO- http://127.0.0.1:8709/api/v1/health || exit 1
 
 # OCI image metadata
 ARG SERVICE_NAME="registrar"
