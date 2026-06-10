@@ -16,8 +16,12 @@ from typing import Any
 
 from ...checkers.base import AccountCheckerProtocol
 from ...config.settings import load_config
-from common.database import get_account_by_email, get_accounts, update_account
-from src.core.storage import db_path
+from common.database._async import (
+    get_account_by_email_async,
+    get_accounts_async,
+    update_account_async,
+)
+from common.database._engine import get_async_session
 from common.enums import CheckStatus
 
 _log = logging.getLogger(__name__)
@@ -92,7 +96,8 @@ async def _check_chatgpt(account: dict[str, Any], cfg: Any, now: str) -> dict[st
             "last_refresh": r.get("last_refresh", ""),
         })
 
-    await asyncio.to_thread(update_account, _db_path(), "CHATGPT", account["email"], **update_fields)
+    async with get_async_session() as session:
+        await update_account_async(session, "CHATGPT", account["email"], **update_fields)
     return {
         "valid": result["valid"],
         "check_status": check_status,
@@ -129,7 +134,8 @@ async def _check_elevenlabs(account: dict[str, Any], cfg: Any, now: str) -> dict
         update_kwargs["disabled"] = True
         _log.warning("ELEVENLABS %s: unusual_activity — auto-disabled", account["email"])
 
-    await asyncio.to_thread(update_account, _db_path(), "ELEVENLABS", account["email"], **update_kwargs)
+    async with get_async_session() as session:
+        await update_account_async(session, "ELEVENLABS", account["email"], **update_kwargs)
     return {
         "valid": result["valid"],
         "check_status": check_status,
@@ -154,7 +160,8 @@ async def _check_openrouter(account: dict[str, Any], cfg: Any, now: str) -> dict
         if limit and limit > 0 and remaining is not None:
             quota_pct = f"{round(remaining / limit * 100)}%"
 
-    await asyncio.to_thread(update_account, _db_path(), "OPENROUTER", account["email"], **{
+    async with get_async_session() as session:
+        await update_account_async(session, "OPENROUTER", account["email"], **{
         "check_status": check_status,
         "quota_pct": quota_pct,
         "last_checked": now,
@@ -177,7 +184,8 @@ async def _check_aa_session(account: dict[str, Any], cfg: Any, now: str) -> dict
     session_state = account.get("session_state", "")
     if not session_state:
         check_status = CheckStatus.EXPIRED
-        await asyncio.to_thread(update_account, _db_path(), "ARTIFICIALANALYSIS", account["email"], **{
+        async with get_async_session() as session:
+            await update_account_async(session, "ARTIFICIALANALYSIS", account["email"], **{
             "check_status": check_status,
             "last_checked": now,
             "last_error": "no session_state",
@@ -211,7 +219,8 @@ async def _check_aa_session(account: dict[str, Any], cfg: Any, now: str) -> dict
         check_status = CheckStatus.ERROR
         last_error = str(exc)[:200]
 
-    await asyncio.to_thread(update_account, _db_path(), "ARTIFICIALANALYSIS", account["email"], **{
+    async with get_async_session() as session:
+        await update_account_async(session, "ARTIFICIALANALYSIS", account["email"], **{
         "check_status": check_status,
         "last_checked": now,
         "last_error": last_error,
@@ -240,7 +249,8 @@ async def check_and_persist(service: str, email: str) -> dict[str, Any]:
     """Check account validity/quota rồi persist kết quả vào DB.
     Dùng Strategy registry — thêm service mới chỉ cần thêm vào _CHECKERS.
     """
-    account = await asyncio.to_thread(get_account_by_email, _db_path(), service.upper(), email)
+    async with get_async_session() as session:
+        account = await get_account_by_email_async(session, service.upper(), email)
     if not account:
         return {"error": "not found"}
 
@@ -278,7 +288,8 @@ async def start_batch_check(service: str | None = None) -> dict[str, Any]:
         if _batch["running"]:
             return {"error": "already running", **_batch}
 
-    accounts = await asyncio.to_thread(get_accounts, _db_path(), target, False)
+    async with get_async_session() as session:
+        accounts = await get_accounts_async(session, target, False)
     total = len(accounts)
     if total == 0:
         return {"error": "no accounts to check"}
@@ -369,15 +380,13 @@ async def _run_or_privacy_check(accounts: list[dict[str, Any]]) -> None:
     async def _process(acc: dict[str, Any]) -> None:
         result = await _check_or_privacy_one(acc["api_key"], cfg)
         if result == "privacy_blocked":
-            await asyncio.to_thread(
-                update_account, _db_path(), "OPENROUTER", acc["email"],
-                check_status="invalid", last_checked=now, last_error="privacy settings blocked",
-            )
+            async with get_async_session() as session:
+                await update_account_async(session, "OPENROUTER", acc["email"],
+                check_status="invalid", last_checked=now, last_error="privacy settings blocked",)
         elif result == "ok":
-            await asyncio.to_thread(
-                update_account, _db_path(), "OPENROUTER", acc["email"],
-                check_status="valid", last_checked=now, last_error="",
-            )
+            async with get_async_session() as session:
+                await update_account_async(session, "OPENROUTER", acc["email"],
+                check_status="valid", last_checked=now, last_error="",)
         if result not in ("ok", "privacy_blocked", "skipped"):
             raise ValueError(f"Unexpected privacy check result: {result!r}")
         async with _or_privacy_lock:
@@ -394,7 +403,8 @@ async def start_or_privacy_check() -> dict[str, Any]:
     async with _or_privacy_lock:
         if _or_privacy_batch["running"]:
             return {"error": "already running"}
-        accounts = await asyncio.to_thread(get_accounts, _db_path(), "OPENROUTER", include_disabled=False)
+        async with get_async_session() as session:
+            accounts = await get_accounts_async(session, "OPENROUTER", include_disabled=False)
         keys = [a for a in accounts if a.get("api_key")]
         if not keys:
             return {"error": "no openrouter accounts with api_key"}
@@ -498,7 +508,8 @@ async def start_check_and_clean_or() -> dict[str, Any]:
     async with _clean_or_lock:
         if _clean_or_batch["running"]:
             return {"error": "already running"}
-        accounts = await asyncio.to_thread(get_accounts, _db_path(), "OPENROUTER", include_disabled=False)
+        async with get_async_session() as session:
+            accounts = await get_accounts_async(session, "OPENROUTER", include_disabled=False)
         accs = [a for a in accounts if a.get("api_key")]
         if not accs:
             return {"error": "no openrouter accounts with api_key"}
@@ -619,7 +630,8 @@ async def start_fix_or_privacy() -> dict[str, Any]:
     async with _fix_privacy_lock:
         if _fix_privacy_batch["running"]:
             return {"error": "already running"}
-        accounts = await asyncio.to_thread(get_accounts, _db_path(), "OPENROUTER", include_disabled=False)
+        async with get_async_session() as session:
+            accounts = await get_accounts_async(session, "OPENROUTER", include_disabled=False)
         accs = [a for a in accounts if a.get("password")]
         if not accs:
             return {"error": "no openrouter accounts with password"}
@@ -645,8 +657,8 @@ async def refresh_kling_session(email: str) -> dict[str, Any]:
     from common.browser import open_browser
 
     cfg = load_config()
-    db = _db_path()
-    acc = await asyncio.to_thread(get_account_by_email, db, "KLING", email)
+    async with get_async_session() as session:
+        acc = await get_account_by_email_async(session, "KLING", email)
     if not acc:
         return {"error": f"account not found: {email}"}
     session_json = acc.get("session_state", "")
@@ -677,6 +689,7 @@ async def refresh_kling_session(email: str) -> dict[str, Any]:
     sliding = any(v > 0.1 for v in diff.values())
 
     if sliding:
-        await asyncio.to_thread(update_account, db, "KLING", email, {"session_state": json.dumps(new_state)})
+        async with get_async_session() as session:
+            await update_account_async(session, "KLING", email, {"session_state": json.dumps(new_state)})
 
     return {"email": email, "sliding": sliding, "diff_days": diff, "saved": sliding}
