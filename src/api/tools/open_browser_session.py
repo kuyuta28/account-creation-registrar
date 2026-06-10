@@ -1,4 +1,4 @@
-﻿"""
+"""
 open_browser_session.py - Mo browser Playwright voi session_state da luu trong DB.
 
 Chay nhu subprocess doc lap, doi nguoi dung dong browser roi exit.
@@ -15,11 +15,16 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import sqlite3
 import sys
 import traceback
 import warnings
 from pathlib import Path
+
+from common.database._async import (
+    get_account_by_email_async,
+    get_mailbox_record_async,
+)
+from common.database._engine import get_async_session
 
 # Playwright trên Windows emit "coroutine 'Waiter.reject_on_timeout...' was never awaited"
 # khi event loop cleanup — đây là Playwright internal bug, không phải lỗi code ta.
@@ -38,10 +43,6 @@ def _load_cfg():
     sys.path.insert(0, str(BASE_DIR))
     from src.config.settings import load_config
     return load_config()
-
-
-def _get_db_path() -> Path:
-    return _load_cfg().base_dir / "data" / "accounts.db"
 
 
 def _get_log_dir() -> Path:
@@ -82,56 +83,53 @@ def _setup_logger() -> logging.Logger:
     return log
 
 
-def _load_service_session(service: str, email: str, log: logging.Logger) -> dict:
-    """Load session_state tu bang accounts."""
-    db_path = _get_db_path()
-    log.debug("DB lookup: accounts WHERE service=%r AND email=%r (db=%s)", service, email, db_path)
-    if not db_path.exists():
-        raise RuntimeError(f"DB không tìm thấy tại {db_path}")
-    conn = sqlite3.connect(db_path)
-    row = conn.execute(
-        "SELECT session_state FROM accounts WHERE service=? AND email=?",
-        (service, email),
-    ).fetchone()
-    conn.close()
-    if not row:
+async def _load_service_session(service: str, email: str, log: logging.Logger) -> dict:
+    """Load session_state từ bảng accounts (async Postgres)."""
+    log.debug("DB lookup: accounts WHERE service=%r AND email=%r", service, email)
+    async with get_async_session() as session:
+        record = await get_account_by_email_async(session, service, email)
+    if not record:
         raise RuntimeError(f"Không tìm thấy account {service}/{email} trong DB")
-    if not row[0]:
+    if not record.get("session_state"):
         raise RuntimeError(f"Account {service}/{email} tồn tại nhưng session_state = NULL/empty")
-    data = json.loads(row[0])
+    data = json.loads(record["session_state"])
     cookies = data.get("cookies", [])
     log.info("Session loaded: %d cookies cho %s/%s", len(cookies), service, email)
     return data
 
 
-def _load_gmail_session(email: str, log: logging.Logger) -> dict:
-    """Load google_auth_state từ accounts(service='GMAIL') — bảng mailboxes đã được migrate."""
-    db_path = _get_db_path()
-    log.debug("DB lookup: accounts WHERE service='GMAIL' AND email=%r (db=%s)", email, db_path)
-    if not db_path.exists():
-        raise RuntimeError(f"DB không tìm thấy tại {db_path}")
-    conn = sqlite3.connect(db_path)
-    row = conn.execute(
-        "SELECT session_state FROM accounts WHERE service='GMAIL' AND email=?",
-        (email,),
-    ).fetchone()
-    conn.close()
-    if not row:
-        raise RuntimeError(f"Mailbox {email!r} không tìm thấy trong DB (accounts service=GMAIL)")
-    if not row[0]:
+async def _load_gmail_session(email: str, log: logging.Logger) -> dict:
+    """Load google_auth_state từ mailboxes table (async Postgres)."""
+    log.debug("DB lookup: mailboxes WHERE email=%r", email)
+    async with get_async_session() as session:
+        record = await get_mailbox_record_async(session, email)
+    if not record:
+        raise RuntimeError(f"Mailbox {email!r} không tìm thấy trong DB (mailboxes table)")
+    state = record.get("google_auth_state")
+    if not state:
         raise RuntimeError(f"Mailbox {email!r} chưa có Google session — chạy refresh-session trước")
-    data = json.loads(row[0])
+    if isinstance(state, (bytes, bytearray)):
+        state = state.decode("utf-8")
+    data = json.loads(state)
     cookies = data.get("cookies", [])
     log.info("Gmail session loaded: %d cookies cho %s", len(cookies), email)
     return data
 
 
-def load_session(service: str, email: str, log: logging.Logger) -> dict:
-    """Router: chon bang dung theo service."""
+def load_session_sync(service: str, email: str, log: logging.Logger) -> dict:
+    """Sync entry point — drives the async loader from a non-async caller
+    without re-creating the event loop on every call."""
+    if service.upper() == "GMAIL":
+        return asyncio.run(_load_gmail_session(email, log))
+    return asyncio.run(_load_service_session(service.upper(), email, log))
+
+
+async def load_session(service: str, email: str, log: logging.Logger) -> dict:
+    """Async entry point. Equivalent to load_session_sync but for async callers."""
     log.info("Loading session: service=%s email=%s", service, email)
     if service.upper() == "GMAIL":
-        return _load_gmail_session(email, log)
-    return _load_service_session(service.upper(), email, log)
+        return await _load_gmail_session(email, log)
+    return await _load_service_session(service.upper(), email, log)
 
 
 async def main() -> None:
