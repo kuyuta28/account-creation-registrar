@@ -12,8 +12,8 @@ from pathlib import Path
 from typing import Any
 
 from ...config.settings import load_config
-from common.database import get_accounts
-from src.core.storage import db_path
+from common.database._async import get_accounts_async
+from common.database._engine import get_async_session
 
 
 _log = logging.getLogger(__name__)
@@ -105,7 +105,8 @@ async def _get_ollama_accounts(
     registrar_db = db_path(cfg.base_dir)
 
     # Get all OLLAMA accounts
-    all_accs = await asyncio.to_thread(get_accounts, registrar_db, "OLLAMA", True)
+    async with get_async_session() as session:
+        all_accs = await get_accounts_async(session, "OLLAMA", True)
 
     if account_emails:
         email_set = {e.lower() for e in account_emails}

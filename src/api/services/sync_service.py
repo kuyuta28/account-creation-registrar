@@ -14,15 +14,10 @@ from typing import Any
 import httpx
 
 from ...config.settings import load_config
-from common.database import get_accounts
-from src.core.storage import db_path
+from common.database._async import get_accounts_async
+from common.database._engine import get_async_session
 
 _log = logging.getLogger(__name__)
-
-
-def _db_path():
-    """Lazy: Đọc db_path từ config mỗi lần gọi — không chạy tại import time."""
-    return db_path(load_config().base_dir)
 
 
 def _or_base_url():
@@ -47,7 +42,8 @@ async def sync_openrouter_to_cliproxy(
     headers = {"Authorization": f"Bearer {cfg.cliproxy_sync.management_key}"}
 
     # Get accounts
-    all_accs = await asyncio.to_thread(get_accounts, _db_path(), "OPENROUTER", True)
+    async with get_async_session() as session:
+        all_accs = await get_accounts_async(session, "OPENROUTER", True)
     if account_emails:
         email_set = {e.lower() for e in account_emails}
         all_accs = [a for a in all_accs if a.get("email", "").lower() in email_set]
@@ -112,7 +108,8 @@ async def preview_sync_openrouter_to_cliproxy(
     api_url = f"{base_url}/v0/management/openai-compatibility"
     headers = {"Authorization": f"Bearer {cfg.cliproxy_sync.management_key}"}
 
-    all_accs = await asyncio.to_thread(get_accounts, _db_path(), "OPENROUTER", True)
+    async with get_async_session() as session:
+        all_accs = await get_accounts_async(session, "OPENROUTER", True)
     if account_emails:
         email_set = {e.lower() for e in account_emails}
         all_accs = [a for a in all_accs if a.get("email", "").lower() in email_set]
@@ -172,7 +169,8 @@ async def sync_ollama_to_cliproxy() -> dict[str, Any]:
     api_url = f"{base_url}/v0/management/openai-compatibility"
     headers = {"Authorization": f"Bearer {cfg.cliproxy_sync.management_key}"}
 
-    all_accs = await asyncio.to_thread(get_accounts, _db_path(), "OLLAMA", True)
+    async with get_async_session() as session:
+        all_accs = await get_accounts_async(session, "OLLAMA", True)
     db_keys = {
         acc["api_key"] for acc in all_accs
         if acc.get("api_key")
@@ -231,7 +229,8 @@ async def sync_cliproxy() -> dict[str, Any]:
     if not target_dir.exists():
         return {"error": f"auth dir not found: {target_dir}"}
 
-    all_accs = await asyncio.to_thread(get_accounts, _db_path(), "CHATGPT", True)
+    async with get_async_session() as session:
+        all_accs = await get_accounts_async(session, "CHATGPT", True)
     bad_emails = {
         acc["email"] for acc in all_accs
         if acc.get("disabled") or acc.get("check_status") in ("invalid", "error")
