@@ -21,8 +21,8 @@ from collections.abc import Callable
 
 from ...config.settings import AppConfig
 from common.browser import open_browser
-from common.database import get_accounts, init_db
-from src.core.storage import db_path
+from common.database._async import get_accounts_async
+from common.database._engine import get_async_session
 from .image_lab import ImageLabParams, SessionExpiredError, run_image_lab
 from .session import save_session
 
@@ -37,9 +37,10 @@ def _make_output_dir(base_dir: Path, email: str) -> Path:
     return base_dir / "output" / "artificialanalysis" / safe_email / ts
 
 
-def _load_active_accounts(db: Path) -> list[dict]:
-    init_db(db)
-    rows = get_accounts(db, _SERVICE)
+async def _load_active_accounts() -> list[dict]:
+    """Load ARTIFICIALANALYSIS accounts that have a session_state (async Postgres)."""
+    async with get_async_session() as session:
+        rows = await get_accounts_async(session, _SERVICE)
     return [r for r in rows if not r.get("disabled") and r.get("session_state")]
 
 
@@ -66,7 +67,7 @@ async def _run_one_account(
             output_dir=output_dir,
             log_fn=_log,
         )
-        await save_session(db_path(cfg.base_dir), email, context)
+        await save_session(email, context)
         _log(f"✅ Done — {len(paths)} image(s)")
         return paths
     except SessionExpiredError as exc:
@@ -87,8 +88,7 @@ async def run_multi_account(
     Trả về tất cả Path ảnh đã download.
     Account lỗi sẽ bị skip (log lỗi), không ảnh hưởng account khác.
     """
-    _db = db_path(cfg.base_dir)
-    accounts = _load_active_accounts(_db)
+    accounts = await _load_active_accounts()
 
     if not accounts:
         raise RuntimeError(

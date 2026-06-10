@@ -25,7 +25,9 @@ from playwright.async_api import Page
 from ...config.settings import AppConfig
 from common.browser import open_browser
 from common.page_utils import dump_debug_html as _dump_debug
-from src.core.storage import AccountRecord, db_path
+from common.database._async import update_account_async
+from common.database._engine import get_async_session
+from src.core.storage import AccountRecord
 from ...mail.client import Mailbox, create_mailbox, extract_link, wait_for_message
 from ..protocols import LogFn, SaveFn
 from .session import save_session
@@ -305,10 +307,10 @@ async def relogin_artificialanalysis(
         log_fn("\n[4.5/4] Accepting Image Lab Terms of Use...")
         await _accept_image_lab_terms(page, t.page_load, log_fn, debug_dir)
 
-        await save_session(db_path(cfg.base_dir), email, context)
+        await save_session(email, context)
 
-        from common.database import update_account
-        update_account(db_path(cfg.base_dir), "ARTIFICIALANALYSIS", email, check_status="valid")
+        async with get_async_session() as session:
+            await update_account_async(session, "ARTIFICIALANALYSIS", email, check_status="valid")
 
         log_fn("✅ Session refreshed + check_status = valid")
 
@@ -336,7 +338,7 @@ async def register_artificialanalysis(
                 record = await _signup_flow(page, mailbox, email, cfg, log_fn)
                 await asyncio.to_thread(save_fn, record)
                 log_fn("✅ Saved to DB")
-                await save_session(db_path(cfg.base_dir), email, context)
+                await save_session(email, context)
                 log_fn("✅ Session saved")
                 return record
         except RuntimeError as exc:
