@@ -4,9 +4,7 @@ Mỗi function xử lý đúng 1 GooglePageState (SRP).
 """
 from __future__ import annotations
 
-import asyncio
 import logging
-import pathlib
 import re
 import time as _time
 
@@ -152,7 +150,6 @@ async def handle_challenge_selection(
 
 async def handle_challenge_phone(
     page: Page,
-    db_path: pathlib.Path | None,
     log_fn: LogFn | None = None,
 ) -> str:
     """
@@ -160,15 +157,10 @@ async def handle_challenge_phone(
     Auto-detect SIM từ 2 số cuối Google hiển thị trên trang.
     Fill số thật vào input, click Send. Trả về resolved phone number.
     """
-    from ..database import get_sms_phones
+    from common.database._async import get_sms_phones_async
+    from common.database._engine import get_async_session
 
     await dump_page_html(page, "challenge_phone_collect", log_fn)
-
-    if not db_path:
-        raise RuntimeError(
-            "Google yêu cầu xác nhận SIM nhưng db_path không được cung cấp. "
-            f"URL: {short_url(page.url)}"
-        )
 
     # Extract 2 số cuối từ hint Google hiển thị
     page_text = await page.locator("body").inner_text()
@@ -183,7 +175,8 @@ async def handle_challenge_phone(
     last_two = hint_match.group(1)
     emit_log(f"Google phone hint: 2 số cuối = {last_two!r}", log_fn)
 
-    phones = await asyncio.to_thread(get_sms_phones, db_path)
+    async with get_async_session() as session:
+        phones = await get_sms_phones_async(session)
     active_phones = [p["phone"] for p in phones if not p.get("disabled")]
     matched = [p for p in active_phones if p.endswith(last_two)]
 

@@ -1,4 +1,4 @@
-﻿"""
+"""
 server.py - FastAPI app entry point.
 Service-based: moi domain la 1 router rieng, doc lap.
 Response format: unified ApiResponse envelope (schemas.py).

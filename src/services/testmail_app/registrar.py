@@ -27,7 +27,7 @@ from ...config.settings import AppConfig
 from common.browser import open_browser
 from common.database import upsert_mail_provider
 from common.page_utils import dump_debug_html as _dump_debug
-from src.core.storage import AccountRecord
+from src.core.account_record import AccountRecord
 from ...mail.client import Mailbox, create_mailbox, wait_for_message
 from ..protocols import LogFn, SaveFn
 

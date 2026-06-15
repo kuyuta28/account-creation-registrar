@@ -16,18 +16,19 @@ from datetime import datetime, timedelta, UTC
 import httpx
 
 from ..config.settings import AppConfig, ChatGPTConfig, load_config
-from src.core.storage import (
+from src.core.account_record import (
     AccountRecord,
     Repo,
-    init_repo,
-    repo_all,
-    repo_update,
-    repo_delete_many,
     build_codex_auth_path,
     serialize_account_record,
     should_export_codex_auth,
     sync_codex_auth_payload,
     write_json,
+)
+from common.database._async import (
+    delete_account_async,
+    get_accounts_async,
+    update_account_async,
 )
 from .base import CheckResult
 
@@ -302,7 +303,7 @@ def _build_auth_record(account: dict) -> AccountRecord:
     )
 
 
-def _persist_refreshed(cfg: AppConfig, repo: Repo, accounts: list[dict], results: list[CheckResult]) -> None:
+async def _persist_refreshed(cfg: AppConfig, repo: Repo, accounts: list[dict], results: list[CheckResult]) -> None:
     """Write refreshed tokens back to DB and exported auth files."""
     refreshed_pairs = [
         (acc, result["refreshed"])
@@ -314,14 +315,17 @@ def _persist_refreshed(cfg: AppConfig, repo: Repo, accounts: list[dict], results
 
     for acc, refreshed_data in refreshed_pairs:
         merged = _merge_refreshed_tokens(acc, refreshed_data)
-        repo_update(
-            repo, "chatgpt", acc["email"],
-            access_token=merged["access_token"],
-            refresh_token=merged["refresh_token"],
-            id_token=merged.get("id_token", ""),
-            account_id=merged.get("account_id", ""),
-            expired=merged["expired"],
-            last_refresh=merged["last_refresh"],
+        await update_account_async(
+            service="chatgpt",
+            email=acc["email"],
+            fields={
+                "access_token": merged["access_token"],
+                "refresh_token": merged["refresh_token"],
+                "id_token": merged.get("id_token", ""),
+                "account_id": merged.get("account_id", ""),
+                "expired": merged["expired"],
+                "last_refresh": merged["last_refresh"],
+            },
         )
         record = _build_auth_record(merged)
         if not should_export_codex_auth(record):
@@ -333,7 +337,7 @@ def _persist_refreshed(cfg: AppConfig, repo: Repo, accounts: list[dict], results
     print("\nRefreshed tokens saved.")
 
 
-def _delete_bad_accounts(
+async def _delete_bad_accounts(
     cfg: AppConfig,
     repo: Repo,
     accounts: list[dict],
@@ -361,7 +365,17 @@ def _delete_bad_accounts(
     bad_emails = {acc.get("email", "") for acc, _ in bad_pairs}
 
     # 1. Xóa khỏi DB
-    deleted_db = repo_delete_many(repo, "chatgpt", bad_emails)
+    deleted_db = 0
+    db_errors: list[str] = []
+    for email in bad_emails:
+        try:
+            await delete_account_async(service="chatgpt", email=email)
+            deleted_db += 1
+        except (OSError, RuntimeError, ValueError) as exc:
+            _log.error("delete_account_async(%s) failed: %s", email, exc)
+            db_errors.append(email)
+    if db_errors:
+        _log.warning("%d account(s) failed to delete from DB: %s", len(db_errors), db_errors)
 
     deleted_local = 0
     deleted_sync = 0
@@ -408,8 +422,7 @@ def _delete_bad_accounts(
 async def _main_async(save_refreshed: bool = True, with_quota: bool = False) -> None:
     cfg = load_config()
     repo = Repo(base_dir=cfg.base_dir, auth_sync=cfg.auth_sync, cliproxy_sync=cfg.cliproxy_sync)
-    init_repo(repo)
-    accounts = repo_all(repo, "chatgpt")
+    accounts = await get_accounts_async(service="chatgpt")
 
     if not accounts:
         print("No ChatGPT accounts found in DB")
@@ -443,7 +456,7 @@ async def _main_async(save_refreshed: bool = True, with_quota: bool = False) -> 
     await asyncio.gather(*[_check_one(i, acc) for i, acc in enumerate(accounts)])
 
     if save_refreshed:
-        _persist_refreshed(cfg, repo, accounts, results)  # type: ignore[arg-type]
+        await _persist_refreshed(cfg, repo, accounts, results)  # type: ignore[arg-type]
 
     valid = sum(1 for r in results if r and r["valid"])
     print(f"\n{sep}")
@@ -455,7 +468,7 @@ async def _main_async(save_refreshed: bool = True, with_quota: bool = False) -> 
         if flaky:
             print(f"  ({flaky} account(s) fail không nhất quán — bỏ qua, không xóa)")
         if confirmed:
-            _delete_bad_accounts(cfg, repo, accounts, results)  # type: ignore[arg-type]
+            await _delete_bad_accounts(cfg, repo, accounts, results)  # type: ignore[arg-type]
 
 
 def main(save_refreshed: bool = True, with_quota: bool = False) -> None:

@@ -14,7 +14,7 @@ from collections.abc import Callable
 
 from ..config.settings import load_config
 from common.logger import LogHandle, make_logger, make_log_fn, log_info
-from src.core.storage import Repo, init_repo, make_save_fn, repo_sync_auth
+from src.core.account_record import Repo, init_repo, make_save_fn, repo_sync_auth
 from ..services.registry import make_registrar
 from ..services.klingai_com.registrar import save_session as kling_save_session
 

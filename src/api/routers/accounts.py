@@ -78,6 +78,26 @@ async def get_services():
     return ok(await list_services())
 
 
+@router.get("/service-counts")
+async def get_service_counts():
+    """Return account counts grouped by service. Powers the sidebar badges
+    in the web UI's Accounts page. Best-effort: services with no rows are
+    omitted from the response so the client can default missing keys to 0.
+    """
+    from sqlalchemy import func, select
+
+    from common.database._engine import _Account, get_async_session
+
+    counts: dict[str, int] = {}
+    async with get_async_session() as session:
+        rows = await session.execute(
+            select(_Account.service, func.count(_Account.id)).group_by(_Account.service)
+        )
+        for service, cnt in rows.all():
+            counts[service.upper()] = int(cnt)
+    return ok(counts)
+
+
 class AddServiceBody(BaseModel):
     name: str
     has_registrar: bool = False
@@ -259,7 +279,8 @@ async def sync_openrouter_cliproxy_preview_endpoint(body: SyncOpenRouterBody):
     try:
         result = await preview_sync_openrouter_to_cliproxy(account_emails=body.emails)
         return ok(result)
-    except Exception as e:
+    except (FileNotFoundError, ValueError, RuntimeError, OSError) as e:
+        _log.error("sync-openrouter-cliproxy/preview failed: %s", e)
         raise AppError(ErrorCode.INTERNAL, str(e), 500)
 
 
@@ -293,7 +314,8 @@ async def sync_ollama_9router_preview_endpoint(body: Sync9routerBody):
             account_emails=body.emails or None,
         )
         return ok(result)
-    except Exception as e:
+    except (FileNotFoundError, ValueError, RuntimeError, OSError) as e:
+        _log.error("sync-ollama-9router/preview failed: %s", e)
         raise AppError(ErrorCode.INTERNAL, str(e), 500)
 
 
@@ -305,7 +327,8 @@ async def sync_ollama_9router_endpoint(body: Sync9routerBody):
             account_emails=body.emails or None,
         )
         return ok(result)
-    except Exception as e:
+    except (FileNotFoundError, ValueError, RuntimeError, OSError) as e:
+        _log.error("sync-ollama-9router failed: %s", e)
         raise AppError(ErrorCode.INTERNAL, str(e), 500)
 
 
@@ -316,7 +339,7 @@ async def sync_auth_endpoint(target_dir: str | None = None):
     """Sync exported auth JSON files từ auth/ ra target_dir (hoặc từ config nếu không truyền)."""
     import asyncio
     from ...config.settings import load_config
-    from src.core.storage import Repo, repo_sync_auth
+    from src.core.account_record import Repo, repo_sync_auth
     cfg = load_config()
     repo = Repo(base_dir=cfg.base_dir, auth_sync=cfg.auth_sync, cliproxy_sync=cfg.cliproxy_sync)
     dest = Path(target_dir) if target_dir else None

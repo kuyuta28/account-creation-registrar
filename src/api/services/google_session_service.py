@@ -1,46 +1,39 @@
-﻿"""
+"""
 google_session_service.py — Login Google và lưu storage_state vào mailbox.
 
 Business logic layer — dùng core/google_oauth.py cho tương tác Google.
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-from pathlib import Path
 from typing import Any
 
 from ...config.settings import load_config
-from common.database import (
-    get_mailboxes,
-    get_mailbox_record,
-    save_mailbox_google_auth_state,
+from common.database._async import (
+    get_mailbox_record_async,
+    get_mailboxes_async,
+    save_mailbox_google_auth_state_async,
 )
+from common.database._engine import get_async_session
 from src.core.google_oauth import (
     get_login_url,
     get_login_timeout_ms,
     login_google_on_page,
 )
-from src.core.storage import db_path
 
 _log = logging.getLogger(__name__)
-
-
-async def _db_path_async() -> Path:
-    cfg = await asyncio.to_thread(load_config)
-    return db_path(cfg.base_dir)
 
 
 async def _login_google_single(email: str, password: str, totp_secret: str) -> str:
     """Login Google cho 1 account, trả về storage_state JSON string."""
     from common.browser import open_browser
-    cfg = await asyncio.to_thread(load_config)
+    cfg = load_config()
     async with open_browser(cfg, headless=False) as browser:
         ctx = await browser.new_context()
         page = await ctx.new_page()
         await page.goto(get_login_url(), wait_until="domcontentloaded")
-        await login_google_on_page(page, email, password, totp_secret, db_path=db_path(cfg.base_dir))
+        await login_google_on_page(page, email, password, totp_secret)
         await page.wait_for_url("https://myaccount.google.com/**", timeout=get_login_timeout_ms(), wait_until="commit")
         state = await ctx.storage_state()
         await ctx.close()
@@ -52,7 +45,8 @@ async def refresh_google_session(email: str) -> dict[str, Any]:
     Login Google cho 1 mailbox và lưu storage_state.
     Trả về dict với email + kết quả.
     """
-    record = await asyncio.to_thread(get_mailbox_record, await _db_path_async(), email)
+    async with get_async_session() as session:
+        record = await get_mailbox_record_async(session, email)
     if not record:
         raise ValueError(f"Mailbox không tồn tại: {email!r}")
 
@@ -65,7 +59,8 @@ async def refresh_google_session(email: str) -> dict[str, Any]:
     _log.info("[google_session] Đang login Google cho %s", email)
     auth_state = await _login_google_single(email, password, totp_secret)
 
-    saved = await asyncio.to_thread(save_mailbox_google_auth_state, await _db_path_async(), email, auth_state)
+    async with get_async_session() as session:
+        saved = await save_mailbox_google_auth_state_async(session, email, auth_state)
     if not saved:
         raise RuntimeError(f"Lưu session thất bại cho {email!r}")
 
@@ -78,7 +73,8 @@ async def refresh_all_google_sessions() -> list[dict[str, Any]]:
     Login Google cho tất cả mailboxes có password, chạy sequential (tránh block nhiều session cùng lúc).
     Trả về list kết quả từng mailbox.
     """
-    mailboxes = await asyncio.to_thread(get_mailboxes, await _db_path_async())
+    async with get_async_session() as session:
+        mailboxes = await get_mailboxes_async(session)
     targets = [m for m in mailboxes if m.get("password") and not m.get("disabled")]
 
     if not targets:

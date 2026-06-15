@@ -1,4 +1,4 @@
-﻿# API Reference
+# API Reference
 
 > Platform runtime Base URL: `http://localhost:8709/api/v1`  
 > Legacy local-dev examples may mention `http://localhost:8799/api/v1`; root orchestration docs are authoritative for platform runtime.  

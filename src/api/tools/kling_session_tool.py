@@ -18,7 +18,7 @@ async def main() -> None:
     gmail_hint = sys.argv[1] if len(sys.argv) > 1 else ""
 
     from src.config.settings import load_config
-    from src.core.storage import Repo, init_repo
+    from src.core.account_record import Repo, init_repo
     from src.services.klingai_com.registrar import save_session
 
     cfg = load_config()

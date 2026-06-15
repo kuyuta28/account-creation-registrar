@@ -8,7 +8,6 @@ Router kh�ng bi?t g� v? Camoufox, storage_state, hay SQL.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import subprocess
 import sys
@@ -18,25 +17,25 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from ...config.settings import load_config
-from common.database import (
-    _UNSET,
-    block_mailbox_for_service,
-    check_gmail_variations_availability,
-    delete_mailbox_record,
-    get_available_mailboxes_for_service,
-    get_mailbox_record,
-    get_mailboxes,
-    get_service_blocks,
-    get_used_gmail_variations,
-    unblock_mailbox_for_service,
-    upsert_mailbox_record,
+from common.database import _UNSET
+from common.database._async import (
+    block_mailbox_for_service_async,
+    check_gmail_variations_availability_async,
+    delete_mailbox_record_async,
+    get_available_mailboxes_for_service_async,
+    get_mailbox_record_async,
+    get_mailboxes_async,
+    get_service_blocks_async,
+    get_used_gmail_variations_async,
+    unblock_mailbox_for_service_async,
+    upsert_mailbox_record_async,
 )
+from common.database._engine import get_async_session
 from src.core.gmail_variations import (
     GmailVariation,
     generate_variations,
     normalize_gmail,
 )
-from src.core.storage import db_path
 from ..exceptions import AppError
 from ..schemas import ErrorCode, ok
 from ..services.account_service import has_service
@@ -58,23 +57,6 @@ _log = logging.getLogger(__name__)
 router = APIRouter(prefix="/gmail", tags=["gmail"])
 
 _OPEN_BROWSER_SCRIPT = Path(__file__).parent.parent / "tools" / "open_browser_session.py"
-
-
-def _db_path():
-    """Resolve the SQLite db_path. Refuses to run when DATABASE_URL is set
-    so the call site does not silently fall back to the legacy SQLite file
-    while the rest of the platform is on PostgreSQL. Operators that want
-    async/Postgres must add `_is_async_mode`-aware wrappers (see
-    `mailbox_dispatcher.py`) and migrate each call site.
-    """
-    if load_config().database.database_url:
-        raise RuntimeError(
-            "DATABASE_URL is set; this endpoint still uses the SQLite "
-            "mailbox helpers in common.database. Migrate the gmail router "
-            "to the async *_async helpers in common.database._async before "
-            "deploying with DATABASE_URL."
-        )
-    return db_path(load_config().base_dir)
 
 
 def _gmail_cfg():
@@ -124,7 +106,8 @@ class PatchMailboxBody(BaseModel):
 async def list_mailboxes():
     """Tr? danh s�ch t?t c? Gmail mailboxes."""
 
-    mailboxes = await asyncio.to_thread(get_mailboxes, _db_path())
+    async with get_async_session() as session:
+        mailboxes = await get_mailboxes_async(session)
     summary = [
         {**{k: v for k, v in m.items() if k != "google_auth_state"},
          "google_auth_state": bool(m.get("google_auth_state"))}
@@ -145,9 +128,8 @@ async def list_available_mailboxes(service: str):
 
     if not service or not service.strip():
         raise AppError(ErrorCode.VALIDATION, "Query param 'service' kh�ng du?c d? tr?ng", 400)
-    mailboxes = await asyncio.to_thread(
-        get_available_mailboxes_for_service, _db_path(), service.strip().upper()
-    )
+    async with get_async_session() as session:
+        mailboxes = await get_available_mailboxes_for_service_async(session, service.strip().upper())
     return ok(mailboxes)
 
 
@@ -163,16 +145,17 @@ async def upsert_mailbox(body: UpsertMailboxBody):
     canonical = normalize_gmail(body.email)
     # Pass `_UNSET` for any field the caller left as None. Empty string is
     # still a deliberate clear. See `UpsertMailboxBody` docstring.
-    mailbox = await asyncio.to_thread(
-        upsert_mailbox_record,
-        _db_path(), canonical,
-        body.app_password  if body.app_password  is not None else _UNSET,
-        body.totp_secret   if body.totp_secret   is not None else _UNSET,
-        body.password      if body.password      is not None else _UNSET,
-        body.source_email  if body.source_email  is not None else _UNSET,
-        body.label         if body.label         is not None else _UNSET,
-        body.disabled      if body.disabled      is not None else _UNSET,
-    )
+    async with get_async_session() as session:
+        mailbox = await upsert_mailbox_record_async(
+            session,
+            canonical,
+            body.app_password if body.app_password is not None else _UNSET,
+            body.totp_secret if body.totp_secret is not None else _UNSET,
+            body.password if body.password is not None else _UNSET,
+            body.source_email if body.source_email is not None else _UNSET,
+            body.label if body.label is not None else _UNSET,
+            body.disabled if body.disabled is not None else _UNSET,
+        )
     return ok(mailbox)
 
 
@@ -184,22 +167,22 @@ async def patch_mailbox(email: str, body: PatchMailboxBody):
     """
 
 
-    record = await asyncio.to_thread(get_mailbox_record, _db_path(), email)
-    if not record:
-        raise AppError(ErrorCode.NOT_FOUND, f"Mailbox kh�ng t?n t?i: {email!r}", 404)
+    async with get_async_session() as session:
+        record = await get_mailbox_record_async(session, email)
+        if not record:
+            raise AppError(ErrorCode.NOT_FOUND, f"Mailbox kh�ng t?n t?i: {email!r}", 404)
 
-    # Merge: ch? override field n�o body g?i (kh�ng None)
-    updated = await asyncio.to_thread(
-        upsert_mailbox_record,
-        _db_path(),
-        record["email"],
-        record["app_password"]  if body.app_password  is None else body.app_password,
-        record["totp_secret"]   if body.totp_secret   is None else body.totp_secret,
-        record["password"]      if body.password       is None else body.password,
-        record.get("source_email", ""),
-        record["label"]         if body.label          is None else body.label,
-        record["disabled"]      if body.disabled       is None else body.disabled,
-    )
+        # Merge: ch? override field n�o body g?i (kh�ng None)
+        updated = await upsert_mailbox_record_async(
+            session,
+            record["email"],
+            record["app_password"] if body.app_password is None else body.app_password,
+            record["totp_secret"] if body.totp_secret is None else body.totp_secret,
+            record["password"] if body.password is None else body.password,
+            record.get("source_email", ""),
+            record["label"] if body.label is None else body.label,
+            record["disabled"] if body.disabled is None else body.disabled,
+        )
     return ok(updated)
 
 
@@ -214,7 +197,8 @@ class BlockBody(BaseModel):
 async def list_blocks(service: str | None = None):
     """Tr? danh s�ch t?t c? mailbox service blocks. L?c theo ?service=ELEVENLABS n?u c?n."""
 
-    blocks = await asyncio.to_thread(get_service_blocks, _db_path(), service)
+    async with get_async_session() as session:
+        blocks = await get_service_blocks_async(session, service)
     return ok(blocks)
 
 
@@ -222,7 +206,8 @@ async def list_blocks(service: str | None = None):
 async def delete_mailbox(email: str):
     """X�a m?t Gmail mailbox."""
 
-    deleted = await asyncio.to_thread(delete_mailbox_record, _db_path(), email)
+    async with get_async_session() as session:
+        deleted = await delete_mailbox_record_async(session, email)
     if not deleted:
         raise AppError(ErrorCode.NOT_FOUND, f"Mailbox kh�ng t?n t?i: {email!r}", 404)
     return ok({"deleted": True})
@@ -238,7 +223,7 @@ async def gmail_list_messages(email: str, unread_only: bool = False):
     - unread_only: ch? tr? unread emails (m?c d?nh false).
     """
     try:
-        msgs = await list_inbox(_db_path(), email, unread_only)
+        msgs = await list_inbox(email, unread_only)
     except (MailboxNotFoundError, SessionExpiredError) as exc:
         raise _map_inbox_errors(exc)
     return ok(msgs)
@@ -254,7 +239,7 @@ async def gmail_search_messages(email: str, q: str):
     if not q or not q.strip():
         raise AppError(ErrorCode.VALIDATION, "Query param 'q' khong duoc de trong", 400)
     try:
-        msgs = await search_inbox(_db_path(), email, q.strip())
+        msgs = await search_inbox(email, q.strip())
     except (MailboxNotFoundError, SessionExpiredError) as exc:
         raise _map_inbox_errors(exc)
     return ok(msgs)
@@ -267,7 +252,7 @@ async def gmail_get_message_body(email: str, message_id: str):
     message_id: gi� tr? jsthread t? list/search messages API (VD: ":2w").
     """
     try:
-        body = await fetch_body(_db_path(), email, message_id)
+        body = await fetch_body(email, message_id)
     except (MailboxNotFoundError, SessionExpiredError) as exc:
         raise _map_inbox_errors(exc)
     return ok({"message_id": message_id, "body": body})
@@ -288,7 +273,7 @@ async def gmail_get_message_otp(email: str, message_id: str, digits: int = 6):
     if digits < 4 or digits > 10:
         raise AppError(ErrorCode.VALIDATION, "digits phai trong khoang 4-10", 400)
     try:
-        result = await extract_otp(_db_path(), email, message_id, digits)
+        result = await extract_otp(email, message_id, digits)
     except (MailboxNotFoundError, SessionExpiredError) as exc:
         raise _map_inbox_errors(exc)
     except ValueError as exc:
@@ -314,7 +299,7 @@ async def gmail_wait_for_message(email: str, body: WaitForMessageBody):
         raise AppError(ErrorCode.VALIDATION, "timeout phai trong khoang 1-600 giay", 400)
     try:
         msg = await poll_for_message(
-            _db_path(), email,
+            email,
             from_contains=body.from_contains,
             subject_contains=body.subject_contains,
             timeout=body.timeout,
@@ -329,7 +314,8 @@ async def gmail_wait_for_message(email: str, body: WaitForMessageBody):
 async def get_mailbox(email: str):
     """L?y th�ng tin m?t Gmail mailbox."""
 
-    mailbox = await asyncio.to_thread(get_mailbox_record, _db_path(), email)
+    async with get_async_session() as session:
+        mailbox = await get_mailbox_record_async(session, email)
     if not mailbox:
         raise AppError(ErrorCode.NOT_FOUND, f"Mailbox kh�ng t?n t?i: {email!r}", 404)
     return ok(mailbox)
@@ -363,7 +349,8 @@ async def open_mailbox_browser(email: str):
     """Mo Camoufox browser voi stored Google session cho mailbox (subprocess, non-blocking)."""
 
     _log.info("open_mailbox_browser: request for email=%s", email)
-    mailbox = await asyncio.to_thread(get_mailbox_record, _db_path(), email)
+    async with get_async_session() as session:
+        mailbox = await get_mailbox_record_async(session, email)
     if not mailbox:
         _log.warning("open_mailbox_browser: mailbox not found � email=%s", email)
         raise AppError(ErrorCode.NOT_FOUND, f"Mailbox khong ton tai: {email!r}", 404)
@@ -388,7 +375,8 @@ async def get_totp_code(email: str):
 
     import pyotp
 
-    mailbox = await asyncio.to_thread(get_mailbox_record, _db_path(), email)
+    async with get_async_session() as session:
+        mailbox = await get_mailbox_record_async(session, email)
     if not mailbox:
         raise AppError(ErrorCode.NOT_FOUND, f"Mailbox kh�ng t?n t?i: {email!r}", 404)
     secret = (mailbox.get("totp_secret") or "").strip()
@@ -403,7 +391,8 @@ async def get_totp_code(email: str):
 async def add_block(email: str, body: BlockBody):
     """��nh d?u mailbox kh�ng kh? d?ng cho m?t service."""
 
-    await asyncio.to_thread(block_mailbox_for_service, _db_path(), email, body.service, body.reason)
+    async with get_async_session() as session:
+        await block_mailbox_for_service_async(session, email, body.service, body.reason)
     return ok({"email": email, "service": body.service.upper(), "blocked": True})
 
 
@@ -411,7 +400,8 @@ async def add_block(email: str, body: BlockBody):
 async def remove_block(email: str, service: str):
     """X�a block c?a mailbox cho service."""
 
-    deleted = await asyncio.to_thread(unblock_mailbox_for_service, _db_path(), email, service)
+    async with get_async_session() as session:
+        deleted = await unblock_mailbox_for_service_async(session, email, service)
     if not deleted:
         raise AppError(ErrorCode.NOT_FOUND, f"Block kh�ng t?n t?i: {email!r} / {service!r}", 404)
     return ok({"email": email, "service": service.upper(), "blocked": False})
@@ -476,9 +466,8 @@ async def get_variations(body: GenerateVariationsBody):
     )
 
     emails = [v.email for v in variations]
-    availability = await asyncio.to_thread(
-        check_gmail_variations_availability, _db_path(), emails, body.service
-    )
+    async with get_async_session() as session:
+        availability = await check_gmail_variations_availability_async(session, emails, body.service)
 
     results = [
         {
@@ -514,9 +503,8 @@ async def get_used(base_email: str, service: str | None = None):
         raise AppError(ErrorCode.UNSUPPORTED, f"Unsupported service: {service}", 400)
 
     canonical = normalize_gmail(base_email)
-    accounts = await asyncio.to_thread(
-        get_used_gmail_variations, _db_path(), canonical, service
-    )
+    async with get_async_session() as session:
+        accounts = await get_used_gmail_variations_async(session, canonical, service)
     return ok({
         "base_email": canonical,
         "service":    service.upper() if service else None,

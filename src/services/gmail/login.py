@@ -11,12 +11,11 @@ Flow (DOM thực tế đã verify):
   7. Lưu storage_state vào DB
 
 Public API:
-  login(db_path, cfg, email, password, totp_secret) -> None
+  login(cfg, email, password, totp_secret) -> None
 """
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
@@ -41,7 +40,6 @@ _SUCCESS_URL = "myaccount.google.com"
 
 
 async def login(
-    db_path: Path,
     cfg: AppConfig,
     email: str,
     password: str,
@@ -119,5 +117,5 @@ async def login(
         _log(f"[gmail/login] Login thành công: {page.url}")
 
         # Bước 7: Lưu session
-        await _save_session(db_path, "GMAIL", email, context)
+        await _save_session("GMAIL", email, context)
         _log(f"[gmail/login] Đã lưu session cho {email}")

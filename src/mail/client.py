@@ -1,4 +1,4 @@
-﻿"""
+"""
 mail/client.py — Public API + dispatcher + circuit breaker.
 
 Dispatcher route theo box.provider → đúng provider module xử lý.

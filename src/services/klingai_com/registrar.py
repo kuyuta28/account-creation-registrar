@@ -11,14 +11,16 @@ Flow:
 """
 from __future__ import annotations
 
+import json
 import time
+from dataclasses import dataclass
 
 from playwright.async_api import Page
 
 from ...config.settings import AppConfig
 from common.browser import open_browser
-from common.database import init_db
-from src.core.storage import AccountRecord, Repo, db_path, repo_save
+from common.database._async import insert_account_async, update_account_async
+from common.database._engine import get_async_session
 from ..protocols import LogFn
 
 
@@ -72,10 +74,43 @@ async def _extract_email(page: Page) -> str:
     return ""
 
 
+@dataclass(frozen=True)
+class AccountRecord:
+    service: str
+    email: str
+    password: str = ""
+    api_key: str = ""
+
+
+@dataclass(frozen=True)
+class InternalClient:
+    """PostgreSQL-backed persistence boundary for internal registrar flows."""
+
+    async def upsert_account(self, record: AccountRecord, session_state: str) -> None:
+        record_with_state = type("KlingAccountRecord", (), {
+            "service": record.service,
+            "email": record.email,
+            "password": record.password,
+            "api_key": record.api_key,
+            "session_state": session_state,
+            "created_at": "",
+            "updated_at": "",
+        })()
+        async with get_async_session() as session:
+            inserted = await insert_account_async(session, record_with_state)
+            if not inserted:
+                await update_account_async(
+                    session,
+                    record.service,
+                    record.email,
+                    {"session_state": session_state},
+                )
+
+
 async def save_session(
     cfg: AppConfig,
     log_fn: LogFn,
-    repo: Repo,
+    repo: object | None = None,
     gmail_hint: str = "",
 ) -> AccountRecord | None:
     """
@@ -152,17 +187,15 @@ async def save_session(
             or f"kling_user_{int(time.time())}"
         )
 
-        # Lưu session vào DB
-        _db = db_path(cfg.base_dir)
-        init_db(_db)
+        # Lưu session vào PostgreSQL
         record = AccountRecord(
             service="KLINGAI",
             email=email,
             password="",
             api_key="",
         )
-        repo_save(repo, record)
-        await save_session(_db, "KLINGAI", email, ctx)
+        session_state = json.dumps(await ctx.storage_state(), ensure_ascii=False)
+        await InternalClient().upsert_account(record, session_state)
         log_fn(f"[OK] Session đã lưu vào DB cho: {email}")
 
         try:

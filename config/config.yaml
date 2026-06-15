@@ -33,6 +33,15 @@ api:
     - http://localhost:1420
     - http://localhost:1421
     - http://127.0.0.1:1421
+    # web-ui (nginx inside the docker stack) is reached on :80 via
+    # traefik. The CORS preflight from the browser shows up as
+    # Origin: http://127.0.0.1 (or :80) and was being rejected, which
+    # made every API call from the new web UI silently fail with 0
+    # results. Allow it.
+    - http://localhost
+    - http://localhost:80
+    - http://127.0.0.1
+    - http://127.0.0.1:80
     - tauri://localhost
     - https://tauri.localhost
 google_oauth:

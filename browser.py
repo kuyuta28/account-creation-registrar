@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import sys
 from camoufox.async_api import AsyncCamoufox
 

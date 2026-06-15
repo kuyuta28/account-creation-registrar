@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 import httpx
 
 from ..config.settings import load_config
-from src.core.storage import Repo, repo_all
+from src.core.account_record import Repo
 from .base import CheckResult
 
 if TYPE_CHECKING:
@@ -158,7 +158,8 @@ async def print_table(accounts: list) -> None:
 async def _main_async() -> None:
     cfg      = load_config()
     repo     = Repo(base_dir=cfg.base_dir)
-    accounts = repo_all(repo, "elevenlabs")
+    from common.database._async import get_accounts_async
+    accounts = await get_accounts_async(service="elevenlabs")
 
     if not accounts:
         print("No ElevenLabs accounts found.")

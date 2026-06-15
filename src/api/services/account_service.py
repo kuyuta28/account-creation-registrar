@@ -88,7 +88,7 @@ async def add_account(
     app_password: str = "",
     source_email: str = "",
 ) -> bool:
-    from src.core.storage import AccountRecord
+    from src.core.account_record import AccountRecord
     from src.core.gmail_variations import _parse_gmail, normalize_gmail
 
     clean_source_email = source_email.strip()

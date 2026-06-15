@@ -7,7 +7,7 @@ No business logic lives here — every real action is delegated to a service.
 from __future__ import annotations
 
 from ..config.settings import load_config
-from src.core.storage import AccountRecord, Repo, init_repo, repo_sync_auth
+from src.core.account_record import AccountRecord, Repo, init_repo, repo_sync_auth
 
 _SEP = "=" * 60
 

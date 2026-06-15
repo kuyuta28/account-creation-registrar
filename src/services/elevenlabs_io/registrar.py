@@ -1,4 +1,4 @@
-﻿"""
+"""
 services/elevenlabs_io/registrar.py — ElevenLabs registration via Google OAuth only.
 
 Flow: inject Google storage_state vào browser context -> "Sign up with Google"
@@ -13,9 +13,10 @@ import logging
 
 from ...config.settings import AppConfig
 from common.browser import open_browser
-from common.database import get_mailbox_google_auth_state, save_mailbox_google_auth_state
+from common.database._async import get_mailbox_record_async, save_mailbox_google_auth_state_async
+from common.database._engine import get_async_session
 from src.core.google_oauth import dump_page_html, handle_oauth_popup
-from src.core.storage import AccountRecord, db_path
+from src.core.account_record import AccountRecord
 from ...mail.client import Mailbox, create_mailbox
 from ..errors import FatalRegistrationError, NoMailboxAvailableError, NoSessionError, RetryableRegistrationError
 from ..protocols import LogFn, SaveFn
@@ -46,10 +47,10 @@ async def register_elevenlabs(
         use_session = cfg.elevenlabs.use_google_session
 
         if use_session:
-            # Lấy Google storage_state từ DB — bắt buộc phải có
-            state_json = await asyncio.to_thread(
-                get_mailbox_google_auth_state, db_path(cfg.base_dir), mailbox.email
-            )
+            # Lấy Google storage_state từ PostgreSQL — bắt buộc phải có
+            async with get_async_session() as session:
+                mailbox_record = await get_mailbox_record_async(session, mailbox.email)
+            state_json = (mailbox_record or {}).get("google_auth_state", "")
             if not state_json:
                 raise NoSessionError(
                     f"No Google session found for {mailbox.email} — "
@@ -108,7 +109,6 @@ async def _run_google_oauth(page, context, mailbox: Mailbox, cfg: AppConfig, log
         email=mailbox.email,
         password=mailbox.password,
         totp_secret=mailbox.totp_secret,
-        db_path=db_path(cfg.base_dir),
         log_fn=log_fn,
     )
     log_fn("  ✓ OAuth popup handled")
@@ -116,12 +116,12 @@ async def _run_google_oauth(page, context, mailbox: Mailbox, cfg: AppConfig, log
     # Lưu updated storage_state về DB (cookies có thể đã refresh)
     try:
         new_state = await context.storage_state()
-        await asyncio.to_thread(
-            save_mailbox_google_auth_state,
-            db_path(cfg.base_dir),
-            mailbox.email,
-            json.dumps(new_state),
-        )
+        async with get_async_session() as session:
+            await save_mailbox_google_auth_state_async(
+                session,
+                mailbox.email,
+                json.dumps(new_state),
+            )
         log_fn("  ✓ Google session refreshed in DB")
     except Exception:  # noqa: BLE001 - best-effort session refresh - log and continue
         _LOG.warning("Failed to save updated Google storage_state", exc_info=True)

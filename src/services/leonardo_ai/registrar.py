@@ -14,7 +14,7 @@ from ...config.settings import AppConfig
 from common.browser import open_browser
 from common.page_utils import dump_debug_html as _dump_debug, safe_text
 from common.password import generate_password
-from src.core.storage import AccountRecord
+from src.core.account_record import AccountRecord
 from ...mail.client import Mailbox, create_mailbox, wait_for_message
 from ..protocols import LogFn, SaveFn
 

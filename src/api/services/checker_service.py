@@ -17,6 +17,7 @@ from typing import Any
 from ...checkers.base import AccountCheckerProtocol
 from ...config.settings import load_config
 from common.database._async import (
+    delete_account_async,
     get_account_by_email_async,
     get_accounts_async,
     update_account_async,
@@ -25,11 +26,6 @@ from common.database._engine import get_async_session
 from common.enums import CheckStatus
 
 _log = logging.getLogger(__name__)
-
-
-def _db_path():
-    """Lazy: Đọc db_path từ config mỗi lần gọi — không chạy tại import time."""
-    return db_path(load_config().base_dir)
 
 
 # ── Batch check state ──────────────────────────────────────────────
@@ -453,10 +449,8 @@ async def _test_or_key(api_key: str, semaphore: asyncio.Semaphore) -> bool:
 
 async def _run_check_and_clean_or(accounts: list[dict[str, Any]]) -> None:
     import yaml
-    from common.database import delete_account as _del_acc
 
     cfg = load_config()
-    db = _db_path()
     sem = asyncio.Semaphore(cfg.checker.check_and_clean_concurrency)
 
     results: list[dict] = []
@@ -474,8 +468,9 @@ async def _run_check_and_clean_or(accounts: list[dict[str, Any]]) -> None:
 
     # Xóa DB
     dead = [r for r in results if not r["ok"]]
-    for r in dead:
-        await asyncio.to_thread(_del_acc, db, "OPENROUTER", r["email"])
+    async with get_async_session() as session:
+        for r in dead:
+            await delete_account_async(session, "OPENROUTER", r["email"])
     async with _clean_or_lock:
         _clean_or_batch["deleted_db"] = len(dead)
 
@@ -653,7 +648,6 @@ async def get_fix_or_privacy_status() -> dict[str, Any]:
 async def refresh_kling_session(email: str) -> dict[str, Any]:
     """Load session_state của account KLING, visit app.klingai.com để refresh cookies, lưu lại."""
     import json
-    from common.database import get_account_by_email, update_account
     from common.browser import open_browser
 
     cfg = load_config()

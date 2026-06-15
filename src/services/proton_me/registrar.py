@@ -1,4 +1,4 @@
-﻿"""
+"""
 services/proton/registrar.py — Proton Mail registration flow.
 Implements Registrar protocol (FP callable).
 Dependencies injected via constructor (Dependency Inversion).
@@ -11,7 +11,7 @@ import logging
 from ...config.settings import AppConfig
 from common.browser import open_browser
 from common.password import generate_password, generate_username
-from src.core.storage import AccountRecord
+from src.core.account_record import AccountRecord
 from ..protocols import LogFn, SaveFn
 
 _LOG = logging.getLogger(__name__)

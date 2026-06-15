@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Protocol
 from collections.abc import Callable
 
-from src.core.storage import AccountRecord
+from src.core.account_record import AccountRecord
 
 # ── Primitive callables ────────────────────────────────────────────────
 LogFn  = Callable[[str], None]

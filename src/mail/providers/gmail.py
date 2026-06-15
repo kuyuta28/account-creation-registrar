@@ -1,4 +1,4 @@
-﻿"""
+"""
 mail/providers/gmail.py - Gmail provider dung Playwright headless voi session cookies.
 
 Google chay security check nen httpx bi reject (401) khi goi Atom feed / REST API.

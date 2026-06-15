@@ -6,7 +6,6 @@ login_google_on_page(): cho full Google login trên page chính.
 from __future__ import annotations
 
 import logging
-import pathlib
 import time as _time
 
 from playwright.async_api import (
@@ -39,7 +38,6 @@ async def handle_oauth_popup(
     email: str = "",
     password: str = "",
     totp_secret: str = "",
-    db_path: pathlib.Path | None = None,
     timeout_ms: int | None = None,
     log_fn: LogFn | None = None,
 ) -> None:
@@ -144,7 +142,7 @@ async def handle_oauth_popup(
 
             if state == GooglePageState.CHALLENGE_PHONE:
                 _emit("→ Handling CHALLENGE_PHONE")
-                resolved_phone = await handle_challenge_phone(popup, db_path, log_fn)
+                resolved_phone = await handle_challenge_phone(popup, log_fn)
                 await wait_url_change(popup)
                 _emit(f"After phone → url={short_url(popup.url)}")
                 continue
@@ -212,7 +210,6 @@ async def login_google_on_page(
     password: str,
     totp_secret: str,
     *,
-    db_path: pathlib.Path | None = None,
     log_fn: LogFn | None = None,
 ) -> None:
     """
@@ -291,7 +288,7 @@ async def login_google_on_page(
 
         if state == GooglePageState.CHALLENGE_PHONE:
             _emit("→ Handling CHALLENGE_PHONE")
-            resolved_phone = await handle_challenge_phone(page, db_path, log_fn)
+            resolved_phone = await handle_challenge_phone(page, log_fn)
             await wait_url_change(page)
             _emit(f"After phone → url={short_url(page.url)}")
             continue

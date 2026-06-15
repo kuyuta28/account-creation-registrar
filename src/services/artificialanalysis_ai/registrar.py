@@ -27,7 +27,7 @@ from common.browser import open_browser
 from common.page_utils import dump_debug_html as _dump_debug
 from common.database._async import update_account_async
 from common.database._engine import get_async_session
-from src.core.storage import AccountRecord
+from src.core.account_record import AccountRecord
 from ...mail.client import Mailbox, create_mailbox, extract_link, wait_for_message
 from ..protocols import LogFn, SaveFn
 from .session import save_session

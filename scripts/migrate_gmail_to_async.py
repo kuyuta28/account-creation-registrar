@@ -1,15 +1,14 @@
 """
-Migrate src/api/services/checker_service.py from sync SQLite calls to
-async Postgres. Run from registrar repo root:
-
-    python scripts/migrate_checker_service.py
+Migrate src/api/routers/gmail.py from sync SQLite to async Postgres.
+Run from registrar repo root:
+    python scripts/migrate_gmail_to_async.py
 """
 from __future__ import annotations
 
 import re
 from pathlib import Path
 
-PATH = Path(__file__).resolve().parents[1] / "src/api/services/checker_service.py"
+PATH = Path(__file__).resolve().parents[1] / "src/api/routers/gmail.py"
 
 
 def find_balanced(s: str, start: int) -> int:
@@ -26,10 +25,18 @@ def find_balanced(s: str, start: int) -> int:
     return -1
 
 
+# Map sync -> async for all functions called in gmail.py
 SYNC_TO_ASYNC = {
-    "update_account": "update_account_async",
-    "get_accounts": "get_accounts_async",
-    "get_account_by_email": "get_account_by_email_async",
+    "get_mailboxes": "get_mailboxes_async",
+    "get_available_mailboxes_for_service": "get_available_mailboxes_for_service_async",
+    "upsert_mailbox_record": "upsert_mailbox_record_async",
+    "get_mailbox_record": "get_mailbox_record_async",
+    "delete_mailbox_record": "delete_mailbox_record_async",
+    "get_service_blocks": "get_service_blocks_async",
+    "block_mailbox_for_service": "block_mailbox_for_service_async",
+    "unblock_mailbox_for_service": "unblock_mailbox_for_service_async",
+    "check_gmail_variations_availability": "check_gmail_variations_availability_async",
+    "get_used_gmail_variations": "get_used_gmail_variations_async",
 }
 
 
@@ -37,6 +44,7 @@ def transform(source: str) -> str:
     out: list[str] = []
     i = 0
     while i < len(source):
+        # Pattern 1: await asyncio.to_thread(<fn>, _db_path(), *rest)
         idx = source.find("await asyncio.to_thread(", i)
         if idx == -1:
             out.append(source[i:])
@@ -44,6 +52,9 @@ def transform(source: str) -> str:
         out.append(source[i:idx])
         paren_start = idx + len("await asyncio.to_thread")
         paren_end = find_balanced(source, paren_start)
+        if paren_end == -1:
+            out.append(source[idx:])
+            break
         args = source[paren_start + 1:paren_end]
         # Find first top-level comma
         depth = 0
@@ -56,34 +67,25 @@ def transform(source: str) -> str:
             elif ch == "," and depth == 0:
                 sep = k
                 break
-        # Skip non-DB helpers (lambda, _del_acc, etc.) and inline lambdas
-        # that have no top-level comma. Leave those calls as-is.
-        if sep == -1 or "lambda" in args or "_del_acc" in args:
+        if sep == -1:
             out.append(source[idx:paren_end + 1])
             i = paren_end + 1
             continue
         fn = args[:sep].strip()
         rest = args[sep + 1:].strip()
+        if fn not in SYNC_TO_ASYNC:
+            # Unknown sync fn — leave as-is
+            out.append(source[idx:paren_end + 1])
+            i = paren_end + 1
+            continue
         async_fn = SYNC_TO_ASYNC[fn]
-        # Drop leading `_db_path(),` if present
+        # Drop leading `_db_path(),`
         if rest.startswith("_db_path(),"):
             rest = rest[len("_db_path(),"):].strip()
-        # Detect **kwargs (splat) at the end
-        # We need to build session block. Use the indentation of the
-        # original line to match.
-        # Get leading indent of original line
         line_start = source.rfind("\n", 0, idx) + 1
-        indent = source[line_start:idx]
-        # Build the new call. The original may have been assigned to
-        # a variable (e.g. `x = await asyncio.to_thread(...)`); when
-        # we wrap it in a `with` block we must drop the `x = ` prefix
-        # or Python raises a syntax error.
-        # `prefix` is the text from the start of the current line up to
-        # `idx`, so it contains any leading `xxx = ` assignment.
-        line_start = source.rfind("\n", 0, idx) + 1
-        indent = source[line_start:idx]
-        prefix = source[line_start:idx]
-        m_assign = re.match(r"^(\s*)(\w+)\s*=\s*$", prefix)
+        line_text = source[line_start:idx]
+        indent = source[line_start:line_start + (len(line_text) - len(line_text.lstrip()))]
+        m_assign = re.match(r"^(\s*)(\w+)\s*=\s*$", line_text)
         if m_assign:
             var = m_assign.group(2)
             new_call = (

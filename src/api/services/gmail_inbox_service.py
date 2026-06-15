@@ -8,10 +8,10 @@ Tất cả public functions đều pure async, không có side-effect ngoài pro
 """
 from __future__ import annotations
 
-import asyncio
 import re
 
-from common.database import get_mailbox_record
+from common.database._async import get_mailbox_record_async
+from common.database._engine import get_async_session
 from ...mail.providers.gmail import (
     GmailMessage,
     get_message_body,
@@ -32,13 +32,14 @@ class SessionExpiredError(RuntimeError):
 
 # ── Mailbox loader (pure function, không side-effect) ─────────────────────────
 
-async def load_inbox_mailbox(db_path, email: str):
+async def load_inbox_mailbox(email: str):
     """
-    Load Mailbox object từ DB theo email.
+    Load Mailbox object từ PostgreSQL theo email.
     Raise MailboxNotFoundError nếu không tìm thấy.
     Raise SessionExpiredError nếu chưa có google_auth_state.
     """
-    record = await asyncio.to_thread(get_mailbox_record, db_path, email)
+    async with get_async_session() as session:
+        record = await get_mailbox_record_async(session, email)
     if not record:
         raise MailboxNotFoundError(email)
     google_auth_state = record.get("google_auth_state")
@@ -54,27 +55,27 @@ async def load_inbox_mailbox(db_path, email: str):
 
 # ── Inbox operations ──────────────────────────────────────────────────────────
 
-async def list_inbox(db_path, email: str, unread_only: bool) -> list[GmailMessage]:
-    box = await load_inbox_mailbox(db_path, email)
+async def list_inbox(email: str, unread_only: bool) -> list[GmailMessage]:
+    box = await load_inbox_mailbox(email)
     return await get_messages(box, unread_only=unread_only)
 
 
-async def search_inbox(db_path, email: str, query: str) -> list[GmailMessage]:
-    box = await load_inbox_mailbox(db_path, email)
+async def search_inbox(email: str, query: str) -> list[GmailMessage]:
+    box = await load_inbox_mailbox(email)
     return await search_messages(box, query)
 
 
-async def fetch_body(db_path, email: str, message_id: str) -> str:
-    box = await load_inbox_mailbox(db_path, email)
+async def fetch_body(email: str, message_id: str) -> str:
+    box = await load_inbox_mailbox(email)
     return await get_message_body(box, message_id)
 
 
-async def extract_otp(db_path, email: str, message_id: str, digits: int) -> dict:
+async def extract_otp(email: str, message_id: str, digits: int) -> dict:
     """
     Fetch email body và extract OTP code có đúng `digits` chữ số.
     Raise ValueError nếu không tìm thấy OTP.
     """
-    body = await fetch_body(db_path, email, message_id)
+    body = await fetch_body(email, message_id)
     plain = re.sub(r"<[^>]+>", " ", body)
     pattern = rf"(?<!\d)(\d{{{digits}}})(?!\d)"
     matches = re.findall(pattern, plain)
@@ -86,14 +87,13 @@ async def extract_otp(db_path, email: str, message_id: str, digits: int) -> dict
 
 
 async def poll_for_message(
-    db_path,
     email: str,
     from_contains: str,
     subject_contains: str,
     timeout: int,
     poll_interval: int,
 ) -> GmailMessage | None:
-    box = await load_inbox_mailbox(db_path, email)
+    box = await load_inbox_mailbox(email)
     return await wait_for_message(
         box,
         from_contains=from_contains,
