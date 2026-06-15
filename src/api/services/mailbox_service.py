@@ -4,8 +4,10 @@ FP style: module-level state + pure async functions.
 """
 from __future__ import annotations
 
+import asyncio
 import re
 import time
+import uuid
 from typing import Any
 
 from ...mail.client import (
@@ -14,26 +16,107 @@ from ...mail.client import (
     get_message_body,
     get_messages,
 )
+from common.database._async import get_provider_connection_strs_async
 
 # ── In-memory store ───────────────────────────────────────────────────
 
 _active_boxes: dict[str, Mailbox] = {}          # email -> Mailbox
 _created_at: dict[str, float] = {}              # email -> timestamp
 
+# ── Mailbox creation jobs (fire-and-forget) ──────────────────────────
+# Pattern: POST /mailbox returns 202 {job_id}; GET /mailbox/jobs/{id}
+# polls status. Frontend polls and shows toast when done/failed.
+# In-memory only — single-process dev stack. Restart wipes jobs.
+
+_JOB_TTL_SEC = 300  # evict finished jobs after 5 min
+
+
+class _MailboxJob:
+    __slots__ = ("id", "status", "provider", "result", "error", "created_at", "finished_at")
+
+    def __init__(self, id: str, provider: str | None) -> None:
+        self.id = id
+        self.provider = provider
+        self.status = "pending"
+        self.result: dict[str, Any] | None = None
+        self.error: str | None = None
+        self.created_at = time.time()
+        self.finished_at: float | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "id": self.id,
+            "status": self.status,
+            "provider": self.provider,
+            "created_at": self.created_at,
+        }
+        if self.result is not None:
+            d["result"] = self.result
+        if self.error is not None:
+            d["error"] = self.error
+        if self.finished_at is not None:
+            d["finished_at"] = self.finished_at
+        return d
+
+
+_jobs: dict[str, _MailboxJob] = {}
+
+
+def _evict_old_jobs() -> None:
+    """Evict finished jobs older than _JOB_TTL_SEC. Called on each new job."""
+    now = time.time()
+    stale = [
+        jid for jid, j in _jobs.items()
+        if j.finished_at is not None and now - j.finished_at > _JOB_TTL_SEC
+    ]
+    for jid in stale:
+        _jobs.pop(jid, None)
+
+
+async def _run_create_job(job_id: str, provider: str | None) -> None:
+    """Background task: thực sự tạo mailbox, update job state."""
+    job = _jobs.get(job_id)
+    if not job:
+        return
+    job.status = "running"
+    try:
+        result = await create_new_mailbox(provider)
+        job.result = result
+        job.status = "done"
+    except Exception as e:  # noqa: BLE001 — boundary: report to caller
+        job.error = f"{type(e).__name__}: {e}"
+        job.status = "failed"
+    finally:
+        job.finished_at = time.time()
+
+
+def start_create_mailbox_job(provider: str | None) -> str:
+    """Tạo job + fire-and-forget background task. Return job_id ngay."""
+    _evict_old_jobs()
+    job_id = uuid.uuid4().hex
+    _jobs[job_id] = _MailboxJob(id=job_id, provider=provider)
+    asyncio.create_task(_run_create_job(job_id, provider))
+    return job_id
+
+
+def get_mailbox_job(job_id: str) -> dict[str, Any] | None:
+    """Trả job state cho polling. None nếu job_id không tồn tại."""
+    job = _jobs.get(job_id)
+    return job.to_dict() if job else None
+
 
 async def create_new_mailbox(provider: str | None = None) -> dict[str, Any]:
     """Create a new temp mailbox using the given provider (or default)."""
-    from ...config.settings import load_config
-    cfg = load_config()
-
-    all_p = cfg.mail.providers_for()  # all active providers from DB
+    # Lấy tất cả active providers; filter theo provider_type prefix trong code dưới.
+    # Không filter theo service_tag vì UI dropdown chọn provider type, không phải tag.
+    all_p = await get_provider_connection_strs_async(service_tag=None)
 
     if provider == "mailslurp":
         providers = [p for p in all_p if p.startswith("mailslurp.com:")]
         if not providers:
             raise RuntimeError("No MailSlurp API keys configured in DB")
     elif provider == "mail.tm":
-        providers = [p for p in all_p if p.startswith("https://")]
+        providers = [p for p in all_p if p.startswith("https://") or p.startswith("mail.tm:")]
         if not providers:
             raise RuntimeError("No mail.tm providers configured in DB")
     elif provider == "testmail.app":
