@@ -41,8 +41,8 @@ def test_import_core_page_utils():
     from src.core import page_utils  # noqa
 
 
-def test_import_core_browser():
-    from src.core import browser  # noqa
+def test_import_common_browser():
+    from common import browser  # noqa
 
 
 # ── mail ──────────────────────────────────────────────────────────────────────
