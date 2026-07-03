@@ -34,7 +34,11 @@ async def _login_google_single(email: str, password: str, totp_secret: str) -> s
         page = await ctx.new_page()
         await page.goto(get_login_url(), wait_until="domcontentloaded")
         await login_google_on_page(page, email, password, totp_secret)
-        await page.wait_for_url("https://myaccount.google.com/**", timeout=get_login_timeout_ms(), wait_until="commit")
+        # Login thanh cong khi URL thoat khoi accounts.google.com (myaccount, gds dashboard, ...)
+        await page.wait_for_url(
+            lambda u: "accounts.google.com" not in u,
+            timeout=get_login_timeout_ms(), wait_until="commit",
+        )
         state = await ctx.storage_state()
         await ctx.close()
     return json.dumps(state)

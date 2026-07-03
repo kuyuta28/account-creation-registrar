@@ -37,7 +37,7 @@ async def handle_login_email(
     page: Page, email: str, log_fn: LogFn | None = None,
 ) -> None:
     """Nhập email và click Next."""
-    email_input = page.locator('input[type="email"]')
+    email_input = page.locator('input[type="email"], input[name="identifier"]')
     await email_input.wait_for(state="visible", timeout=get_login_timeout_ms())
     await email_input.fill(email)
     next_btn = page.locator(
@@ -45,7 +45,7 @@ async def handle_login_email(
         "button:has-text('Next'), button:has-text('Tiep theo'), "
         "button:has-text('Tiếp theo')"
     )
-    await next_btn.first.click(force=True)
+    await next_btn.first.click()
     emit_log(f"Email filled: {email} → Next clicked", log_fn)
 
 

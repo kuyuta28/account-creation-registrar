@@ -129,7 +129,7 @@ async def detect_page_state(page: Page) -> GooglePageState:
             return GooglePageState.LOGIN_PASSWORD
         except (PlaywrightTimeoutError, PlaywrightError):
             pass
-        email_input = page.locator('input[type="email"]')
+        email_input = page.locator('input[type="email"], input[name="identifier"]')
         try:
             await email_input.first.wait_for(state="visible", timeout=10_000)
             _log.debug("[detect_state] → LOGIN_EMAIL (signin + email input)")
