@@ -22,6 +22,9 @@ from .exceptions import (
     validation_error_handler,
 )
 from .routers import accounts, aa_proxy, config, gmail, image_lab, internal, mailbox, providers, registration, sms
+from ..api.services.job_manager import JobManager
+from ..api.services.image_lab_job_manager import ImageLabJobManager
+from common.context import init_app_context
 from .schemas import ok
 from .ws.log_manager import get_bus, set_event_loop
 from common.logger import install_tee
@@ -50,6 +53,13 @@ async def _lifespan(app: FastAPI):
     if _cfg.database.database_url:
         init_async_db(_cfg.database.database_url)
     seed_mail_providers(_cfg)
+    # Init AppContext with JobManager
+    job_state = JobManager(
+        max_jobs=_cfg.registration.max_jobs,
+        max_workers=_cfg.registration.max_workers,
+    )
+    image_lab_manager = ImageLabJobManager(max_jobs=_cfg.registration.max_jobs)
+    init_app_context(config=_cfg, db_engine=None, job_state=job_state, image_lab_manager=image_lab_manager)
     set_event_loop(get_bus(), asyncio.get_running_loop())
     yield
 

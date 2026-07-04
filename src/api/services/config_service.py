@@ -36,18 +36,6 @@ def _list_files() -> list[str]:
     return sorted(p.name for p in _CONFIG_DIR.glob("*.yaml"))
 
 
-def _add_key(key: str) -> int:
-    cfg = _read_dict("mail.yaml")
-    keys: list[str] = cfg.get("mail", {}).get("mailslurp_api_keys", [])
-    if key in keys:
-        return len(keys)
-    keys.append(key)
-    cfg.setdefault("mail", {})["mailslurp_api_keys"] = keys
-    raw = yaml.dump(cfg, default_flow_style=False, allow_unicode=True, sort_keys=False)
-    _file_path("mail.yaml").write_text(raw, encoding="utf-8")
-    return len(keys)
-
-
 # ── Async public API ──────────────────────────────────────────────────────
 
 async def read_config_raw(filename: str = "config.yaml") -> str:
@@ -64,8 +52,3 @@ async def read_config_dict(filename: str = "config.yaml") -> dict:
 
 async def list_config_files() -> list[str]:
     return await asyncio.to_thread(_list_files)
-
-
-async def add_mailslurp_key(key: str) -> int:
-    """Append 1 MailSlurp API key vào mail.yaml. Trả về tổng số key sau khi thêm."""
-    return await asyncio.to_thread(_add_key, key)

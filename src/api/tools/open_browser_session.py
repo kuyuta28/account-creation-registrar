@@ -24,7 +24,7 @@ from common.database._async import (
     get_account_by_email_async,
     get_mailbox_record_async,
 )
-from common.database._engine import get_async_session
+from common.database._engine import get_async_session, init_async_db
 
 # Playwright trên Windows emit "coroutine 'Waiter.reject_on_timeout...' was never awaited"
 # khi event loop cleanup — đây là Playwright internal bug, không phải lỗi code ta.
@@ -141,6 +141,10 @@ async def main() -> None:
         log.error("Thiếu arguments. Usage: open_browser_session <service> <email> [url]")
         sys.exit(1)
 
+    cfg = _load_cfg()
+    if cfg.database.database_url:
+        init_async_db(cfg.database.database_url)
+
     service = sys.argv[1]
     email = sys.argv[2]
     default_url = _DEFAULT_URLS.get(service.upper(), _DEFAULT_URLS["_DEFAULT"])
@@ -148,7 +152,7 @@ async def main() -> None:
     log.info("Target: service=%s email=%s url=%s", service, email, url)
 
     try:
-        state = load_session(service, email, log)
+        state = await load_session(service, email, log)
     except Exception:  # noqa: BLE001 - subprocess top-level: log then abort
         log.error("Không load được session:\n%s", traceback.format_exc())
         sys.exit(1)

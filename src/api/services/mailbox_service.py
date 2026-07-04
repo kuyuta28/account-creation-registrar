@@ -111,11 +111,7 @@ async def create_new_mailbox(provider: str | None = None) -> dict[str, Any]:
     # Không filter theo service_tag vì UI dropdown chọn provider type, không phải tag.
     all_p = await get_provider_connection_strs_async(service_tag=None)
 
-    if provider == "mailslurp":
-        providers = [p for p in all_p if p.startswith("mailslurp.com:")]
-        if not providers:
-            raise RuntimeError("No MailSlurp API keys configured in DB")
-    elif provider == "mail.tm":
+    if provider == "mail.tm":
         providers = [p for p in all_p if p.startswith("https://") or p.startswith("mail.tm:")]
         if not providers:
             raise RuntimeError("No mail.tm providers configured in DB")

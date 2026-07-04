@@ -275,6 +275,7 @@ def _make_save_fn() -> SaveFn:
             totp_secret=getattr(record, "totp_secret", ""),
             app_password=getattr(record, "app_password", ""),
             source_email=getattr(record, "source_email", ""),
+            account_id=getattr(record, "account_id", ""),
         ))
     return _save
 

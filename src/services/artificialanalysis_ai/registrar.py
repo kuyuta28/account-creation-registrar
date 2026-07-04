@@ -232,21 +232,11 @@ async def _signup_flow(
 
 # ── Public API ────────────────────────────────────────────────────────
 
-async def relogin_artificialanalysis(
-    email: str,
-    cfg: AppConfig,
-    log_fn: LogFn,
-) -> None:
-    """Re-login tài khoản AA đã có qua magic link. Cập nhật session_state trong DB.
+def _reconstruct_testmail_mailbox(email: str, cfg: AppConfig, log_fn: LogFn) -> Mailbox:
+    """Reconstruct Mailbox từ email testmail hiện có. Raise nếu sai format/provider.
 
-    Dùng khi session_token hết hạn — flow giống registration nhưng không tạo API key.
     Email phải là testmail.app format: {namespace}.{tag}@inbox.testmail.app
     """
-    t = cfg.timeouts
-    aa_cfg = cfg.artificialanalysis
-    debug_dir = cfg.base_dir / "debug"
-
-    # ── Reconstruct Mailbox từ email testmail hiện có ─────────────────────
     local, _, domain = email.partition("@")
     if domain != "inbox.testmail.app":
         raise RuntimeError(f"relogin chỉ hỗ trợ testmail.app — email không hợp lệ: {email}")
@@ -268,7 +258,7 @@ async def relogin_artificialanalysis(
         )
 
     from ...mail._base import get_testmail_base, Mailbox as _Mailbox
-    mailbox = _Mailbox(
+    return _Mailbox(
         email=email,
         token=namespace,
         account_id=tag,
@@ -277,42 +267,37 @@ async def relogin_artificialanalysis(
         api_key=api_key,
     )
 
-    log_fn(f"🔑 Re-login: {email}")
+
+async def relogin_artificialanalysis(
+    email: str,
+    cfg: AppConfig,
+    log_fn: LogFn,
+) -> None:
+    """Re-login tài khoản AA qua magic link. Cập nhật session_state trong DB.
+
+    Delegate browser work cho Browser Gateway (chạy trên host) — container không
+    còn mở camoufox trực tiếp (camoufox binary chỉ có trên host).
+    Engine: camoufox. Flow xử lý trong gateway task `relogin_aa`.
+    """
+    from common.browser_gateway_client import BrowserGatewayError, run_browser_task
+
+    gateway_url = cfg.api.host_browser_agent_url
+    if not gateway_url:
+        raise RuntimeError(
+            "HOST_BROWSER_AGENT_URL chưa cấu hình — không thể relogin AA. "
+            "Chạy Browser Gateway trên host (py registrar/tools/host_browser_agent.py)."
+        )
+
+    log_fn(f"🔑 Re-login AA: {email} (qua gateway)")
     log_fn("-" * 50)
-
-    # ── Magic link flow (không tạo API key) ──────────────────────────────
-    async with open_browser(cfg) as browser:
-        context = await browser.new_context()
-        page = await context.new_page()
-
-        log_fn(f"\n[1/4] Opening {_LOGIN_URL}...")
-        await page.goto(_LOGIN_URL, timeout=t.page_load * 2, wait_until="domcontentloaded")
-        await page.wait_for_timeout(t.nav_delay)
-        await _dump_debug(page, "aa_relogin_01_login.html", debug_dir)
-
-        log_fn("\n[2/4] Filling email & submitting...")
-        await _fill_email_and_submit(page, email, log_fn)
-        await page.wait_for_timeout(aa_cfg.post_submit_wait_ms)
-        await _dump_debug(page, "aa_relogin_02_after_submit.html", debug_dir)
-        log_fn("  Magic link sent — waiting for email")
-
-        log_fn(f"\n[3/4] Waiting for magic link (up to {aa_cfg.magic_link_wait_sec}s)...")
-        link = await _fetch_magic_link(mailbox, aa_cfg.magic_link_wait_sec, log_fn)
-        log_fn(f"  Link: {link[:80]}...")
-
-        log_fn("\n[4/4] Navigating magic link...")
-        await _navigate_magic_link(page, link, t.page_load, log_fn)
-        await _dump_debug(page, "aa_relogin_03_dashboard.html", debug_dir)
-
-        log_fn("\n[4.5/4] Accepting Image Lab Terms of Use...")
-        await _accept_image_lab_terms(page, t.page_load, log_fn, debug_dir)
-
-        await save_session(email, context)
-
-        async with get_async_session() as session:
-            await update_account_async(session, "ARTIFICIALANALYSIS", email, check_status="valid")
-
-        log_fn("✅ Session refreshed + check_status = valid")
+    try:
+        await run_browser_task(
+            gateway_url, "relogin_aa",
+            args={"email": email},
+            on_log=log_fn,
+        )
+    except BrowserGatewayError as e:
+        raise RuntimeError(f"Gateway relogin AA thất bại cho {email}: {e}") from e
 
 
 async def register_artificialanalysis(

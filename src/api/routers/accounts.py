@@ -49,6 +49,8 @@ from ..services.ninerouter_sync import (
     preview_sync_ollama_to_9router,
     sync_ollama_to_9router,
 )
+from ...config.settings import load_config
+from ..services.open_browser_service import open_browser_window
 
 _log = logging.getLogger(__name__)
 router = APIRouter(prefix="/accounts", tags=["accounts"])
@@ -368,8 +370,6 @@ async def kling_session(body: KlingSessionBody):
 
 # ── Greedy path routes ────────────────────────────────────────────────────────
 
-_OPEN_BROWSER_SCRIPT = Path(__file__).parent.parent / "tools" / "open_browser_session.py"
-
 
 class OpenBrowserBody(BaseModel):
     service: str
@@ -387,16 +387,14 @@ async def open_browser(body: OpenBrowserBody):
     if not acc.get("session_state"):
         _log.warning("open_browser: no session_state — service=%s email=%s", body.service, body.email)
         raise AppError(ErrorCode.VALIDATION, "Account has no saved session", 400)
-    args = [sys.executable, str(_OPEN_BROWSER_SCRIPT), body.service.upper(), body.email]
-    if body.url:
-        args.append(body.url)
-    _log.info("open_browser: spawning subprocess — args=%s", args)
-    proc = subprocess.Popen(
-        args,
-        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
+    cfg = load_config()
+    result = await open_browser_window(
+        body.service.upper(),
+        body.email,
+        cfg.api.host_browser_agent_url,
+        body.url,
     )
-    _log.info("open_browser: subprocess PID=%s launched", proc.pid)
-    return ok({"launched": True, "pid": proc.pid})
+    return ok(result)
 
 
 @router.get("/{service}/{email:path}")

@@ -10,7 +10,6 @@ from pydantic import BaseModel
 from ..exceptions import AppError
 from ..schemas import ErrorCode, ok
 from ..services.config_service import (
-    add_mailslurp_key,
     list_config_files,
     read_config_dict,
     read_config_raw,
@@ -22,10 +21,6 @@ router = APIRouter(prefix="/config", tags=["config"])
 
 class WriteConfigBody(BaseModel):
     content: str
-
-
-class AddKeyBody(BaseModel):
-    key: str
 
 
 @router.get("/files")
@@ -51,15 +46,6 @@ async def put_config_raw(body: WriteConfigBody, file: str = Query(default="confi
     except ValueError as exc:
         raise AppError(ErrorCode.VALIDATION, f"Invalid YAML: {exc}", 400)
     return ok({"saved": True})
-
-
-@router.post("/mail/add-key")
-async def post_add_mailslurp_key(body: AddKeyBody):
-    key = body.key.strip()
-    if not key:
-        raise AppError(ErrorCode.VALIDATION, "Key cannot be empty", 400)
-    total = await add_mailslurp_key(key)
-    return ok({"total": total})
 
 
 @router.get("")

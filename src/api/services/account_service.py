@@ -87,6 +87,7 @@ async def add_account(
     totp_secret: str = "",
     app_password: str = "",
     source_email: str = "",
+    account_id: str = "",
 ) -> bool:
     from src.core.account_record import AccountRecord
     from src.core.gmail_variations import _parse_gmail, normalize_gmail
@@ -103,6 +104,7 @@ async def add_account(
         totp_secret=totp_secret,
         app_password=app_password,
         source_email=clean_source_email,
+        account_id=account_id,
     )
 
     async with get_async_session() as session:
@@ -119,6 +121,8 @@ async def add_account(
             ext_data = {"api_key": api_key}
         elif svc == "MAILOSAUR":
             ext_data = {"api_key": api_key, "server_id": ""}
+        elif svc == "CLOUDFLARE":
+            ext_data = {"api_key": api_key, "account_id_in_token": account_id}
 
         inserted = await insert_account_async(session, record, ext_data)
 

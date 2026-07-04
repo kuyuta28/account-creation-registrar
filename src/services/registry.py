@@ -46,6 +46,11 @@ def _make_artificialanalysis(cfg: AppConfig) -> Registrar:
     return partial(register_artificialanalysis, cfg)
 
 
+def _make_cloudflare(cfg: AppConfig) -> Registrar:
+    from .cloudflare_com.registrar import register_cloudflare
+    return partial(register_cloudflare, cfg)
+
+
 def _make_testmail(cfg: AppConfig) -> Registrar:
     from .testmail_app.registrar import register_testmail
     return partial(register_testmail, cfg)
@@ -64,6 +69,7 @@ _FACTORIES: dict[str, Callable[[AppConfig], Registrar]] = {
     "LEONARDO":   _make_leonardo,
     "PROTON":     _make_proton,
     "ARTIFICIALANALYSIS": _make_artificialanalysis,
+    "CLOUDFLARE":           _make_cloudflare,
     "TESTMAIL":           _make_testmail,
     "MAILOSAUR":          _make_mailosaur,
 }

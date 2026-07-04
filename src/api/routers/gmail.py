@@ -9,9 +9,6 @@ Router kh�ng bi?t g� v? Camoufox, storage_state, hay SQL.
 from __future__ import annotations
 
 import logging
-import subprocess
-import sys
-from pathlib import Path
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -52,12 +49,10 @@ from ..services.google_session_service import (
     refresh_all_google_sessions,
     refresh_google_session,
 )
+from ..services.open_browser_service import open_browser_window
 
 _log = logging.getLogger(__name__)
 router = APIRouter(prefix="/gmail", tags=["gmail"])
-
-_OPEN_BROWSER_SCRIPT = Path(__file__).parent.parent / "tools" / "open_browser_session.py"
-
 
 def _gmail_cfg():
     return load_config().gmail_variations
@@ -357,14 +352,13 @@ async def open_mailbox_browser(email: str):
     if not mailbox.get("google_auth_state"):
         _log.warning("open_mailbox_browser: no google_auth_state � email=%s", email)
         raise AppError(ErrorCode.VALIDATION, f"Mailbox {email!r} chua co session - refresh-session truoc", 400)
-    args = [sys.executable, str(_OPEN_BROWSER_SCRIPT), "GMAIL", email]
-    _log.info("open_mailbox_browser: spawning subprocess � args=%s", args)
-    proc = subprocess.Popen(
-        args,
-        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
+    cfg = load_config()
+    result = await open_browser_window(
+        "GMAIL",
+        email,
+        cfg.api.host_browser_agent_url,
     )
-    _log.info("open_mailbox_browser: subprocess PID=%s launched for %s", proc.pid, email)
-    return ok({"launched": True, "pid": proc.pid})
+    return ok(result)
 
 
 @router.get("/mailboxes/{email}/totp")
