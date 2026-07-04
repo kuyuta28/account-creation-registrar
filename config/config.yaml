@@ -1,9 +1,7 @@
 browser:
-  headless: false
+  headless: true
   viewport_width: 1280
   viewport_height: 720
   max_concurrent: 10
-
 ninerouter:
   dashboard_url: http://localhost:20128/dashboard/providers/cloudflare-ai
-  # password: đọc qua env var NINEROUTER_PASSWORD (không hardcode trong file)
