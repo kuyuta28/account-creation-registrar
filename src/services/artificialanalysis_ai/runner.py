@@ -65,6 +65,7 @@ async def _run_one_account(
             context=context,
             params=params,
             output_dir=output_dir,
+            image_lab_url=cfg.artificialanalysis.image_lab_url,
             log_fn=_log,
         )
         await save_session(email, context)

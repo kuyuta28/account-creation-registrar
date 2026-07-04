@@ -16,11 +16,9 @@ captcha:
   drag_steps: 20
   drag_settle_ms: 400
 
-  # API keys — để trống nếu không dùng service đó
-  ezcaptcha_api_key: ""      # EZCaptcha  — Turnstile $1/1k     (dashboard.ez-captcha.com)
-  yescaptcha_api_key: ""     # YesCaptcha — FREE 1500 điểm khi đăng ký (yescaptcha.com)
-  twocaptcha_api_key: "e3d2b699ddd12357052812f925563d4d"  # 2captcha — Turnstile $1.45/1k (2captcha.com)
-  capsolver_api_key: ""      # CapSolver  — Turnstile $1.6/1k   (dashboard.capsolver.com)
+  # API keys — đọc qua env var (EZCAPTCHA_API_KEY / YESCAPTCHA_API_KEY /
+  # TWOCAPTCHA_API_KEY / CAPSOLVER_API_KEY). KHÔNG điền literal vào file này.
+  # ezcaptcha_api_key / yescaptcha_api_key / twocaptcha_api_key / capsolver_api_key
 
   # Turnstile-Solver local server (github.com/Theyka/Turnstile-Solver, dùng camoufox)
   # Để trống = không dùng. Cài: D:\business\Turnstile-Solver

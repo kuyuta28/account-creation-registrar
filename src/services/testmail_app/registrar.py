@@ -120,13 +120,13 @@ async def _fill_signup_form(page: Page, email: str, first: str, last: str) -> No
     await page.locator("button#signupbutton").click()
 
 
-async def _get_verification_code(mailbox: Mailbox, timeout: int, log_fn: LogFn) -> str | None:
+async def _get_verification_code(mailbox: Mailbox, timeout: int, poll_interval: int, log_fn: LogFn) -> str | None:
     log_fn("  Đợi email verification từ testmail.app...")
     msg = await wait_for_message(
         mailbox,
         from_contains="testmail",
         timeout=timeout,
-        poll_interval=5,
+        poll_interval=poll_interval,
         log_fn=log_fn,
     )
     if not msg:
@@ -212,7 +212,7 @@ async def _signup_flow(
     log_fn(f"  URL sau signup: {page.url}")
 
     log_fn(f"\n[3/5] Waiting for verification code (timeout={otp_timeout}s)...")
-    code = await _get_verification_code(mailbox, otp_timeout, log_fn)
+    code = await _get_verification_code(mailbox, otp_timeout, cfg.testmail.otp_poll_interval, log_fn)
     if not code:
         raise RuntimeError("Không nhận được verification code từ testmail.app")
 

@@ -23,8 +23,6 @@ from collections.abc import Callable
 
 from playwright.async_api import BrowserContext
 
-_IMAGE_LAB_URL = "https://artificialanalysis.ai/image/image-lab"
-
 LogFn = Callable[[str], None]
 
 
@@ -47,9 +45,9 @@ class GenerationFailedError(RuntimeError):
 
 # ── Step helpers ─────────────────────────────────────────────────────────────
 
-async def _verify_logged_in(page, log_fn: LogFn) -> None:
+async def _verify_logged_in(page, image_lab_url: str, log_fn: LogFn) -> None:
     """Raise SessionExpiredError nếu bị redirect về login."""
-    await page.goto(_IMAGE_LAB_URL, wait_until="domcontentloaded")
+    await page.goto(image_lab_url, wait_until="domcontentloaded")
     await page.wait_for_timeout(3000)
     if "/login" in page.url:
         raise SessionExpiredError("Session expired — redirect về login")
@@ -225,6 +223,7 @@ async def run_image_lab(
     context: BrowserContext,
     params: ImageLabParams,
     output_dir: Path,
+    image_lab_url: str,
     log_fn: LogFn,
     generation_timeout_sec: int = 300,
 ) -> list[Path]:
@@ -236,7 +235,7 @@ async def run_image_lab(
     page = await context.new_page()
     try:
         log_fn("[1] Verify session...")
-        await _verify_logged_in(page, log_fn)
+        await _verify_logged_in(page, image_lab_url, log_fn)
 
         log_fn("[2] Select models...")
         await _select_models(page, params.models, log_fn)

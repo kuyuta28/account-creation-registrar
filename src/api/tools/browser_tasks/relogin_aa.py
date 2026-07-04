@@ -51,8 +51,8 @@ async def relogin_aa(
     try:
         page = await ctx.new_page()
 
-        log(f"[1/4] Opening https://artificialanalysis.ai/login...")
-        await page.goto("https://artificialanalysis.ai/login", timeout=t.page_load * 2, wait_until="domcontentloaded")
+        log(f"[1/4] Opening {aa_cfg.login_url}...")
+        await page.goto(aa_cfg.login_url, timeout=t.page_load * 2, wait_until="domcontentloaded")
         await page.wait_for_timeout(t.nav_delay)
 
         log("[2/4] Filling email & submitting...")
@@ -65,7 +65,7 @@ async def relogin_aa(
         log(f"  Link: {link[:80]}...")
 
         log("[4/4] Navigating magic link...")
-        await _navigate_magic_link(page, link, t.page_load, log)
+        await _navigate_magic_link(page, link, aa_cfg.base_url, t.page_load, log)
 
         state = await ctx.storage_state()
     finally:

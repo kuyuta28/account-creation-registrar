@@ -44,10 +44,6 @@ def _mailosaur_cfg():
 def _signup_url(cfg=None) -> str:
     return cfg.mailosaur.signup_url if cfg else _mailosaur_cfg().signup_url
 
-_KEYS_URL = "https://mailosaur.com/app/keys"  # used by _extract_api_key
-_KEYS_TIMEOUT_MS = 30000
-
-
 _NAMES = [
     ("Alex", "Morgan"), ("Jordan", "Taylor"), ("Casey", "Riley"),
     ("Morgan", "Quinn"), ("Taylor", "Avery"), ("Chris", "Bailey"),
@@ -148,12 +144,12 @@ async def _setup_first_inbox(page: Page) -> None:
     await page.wait_for_url(lambda url: "first-inbox" not in url, timeout=25000, wait_until="commit")
 
 
-async def _extract_api_key(page: Page, debug_dir, log_fn: LogFn) -> str:
+async def _extract_api_key(page: Page, msr_cfg, debug_dir, log_fn: LogFn) -> str:
     """
     Navigate tới /app/keys → tạo standard key → lấy API key từ dialog.
     """
     log_fn("  Navigating to API keys page...")
-    await page.goto(_KEYS_URL, wait_until="domcontentloaded", timeout=_KEYS_TIMEOUT_MS)
+    await page.goto(msr_cfg.keys_url, wait_until="domcontentloaded", timeout=msr_cfg.keys_page_timeout_ms)
     await page.wait_for_timeout(3000)
     await _dump_debug(page, "msr_09_api_keys_page.html", debug_dir)
 
@@ -299,7 +295,7 @@ async def _signup_flow(
     log_fn(f"  SERVER_ID: {server_id}")
 
     log_fn("\n[9/9] Lấy API key từ dashboard...")
-    api_key = await _extract_api_key(page, debug_dir, log_fn)
+    api_key = await _extract_api_key(page, cfg.mailosaur, debug_dir, log_fn)
     log_fn(f"  API key: {api_key[:8]}...")
 
     return AccountRecord(

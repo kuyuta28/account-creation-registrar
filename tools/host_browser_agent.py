@@ -53,7 +53,7 @@ CFG = load_config()
 if CFG.database.database_url:
     init_async_db(CFG.database.database_url)
 
-MAX_CONCURRENT = 4
+MAX_CONCURRENT = CFG.max_concurrent
 _semaphore = asyncio.Semaphore(MAX_CONCURRENT)
 
 # task_id -> TaskRecord

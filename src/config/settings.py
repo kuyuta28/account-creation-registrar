@@ -202,7 +202,7 @@ class NineRouterConfig:
     Dùng để auto-add Cloudflare account sau khi tạo: fill form Add → Check → Save.
     """
     dashboard_url: str = "http://localhost:20128/dashboard/providers/cloudflare-ai"
-    password: str = "@Anhtuan13"
+    password: str = field(default_factory=lambda: os.getenv("NINEROUTER_PASSWORD", ""))
 
 
 @dataclass(frozen=True)
@@ -471,6 +471,9 @@ class AppConfig:
     headless: bool = False
     viewport_width: int = 1280
     viewport_height: int = 720
+    # Số camoufox task tối đa chạy đồng thời trên Browser Gateway host.
+    # Phải >= registration.max_workers, nếu không worker thừa sẽ chờ (worker ≠ luồng).
+    max_concurrent: int = 10
     timeouts: TimeoutConfig = field(default_factory=TimeoutConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
     captcha: CaptchaConfig = field(default_factory=CaptchaConfig)
@@ -722,6 +725,7 @@ def load_config(path: Path | None = None) -> AppConfig:
         headless=_strict(browser_raw, "headless", "browser"),
         viewport_width=_strict(browser_raw, "viewport_width", "browser"),
         viewport_height=_strict(browser_raw, "viewport_height", "browser"),
+        max_concurrent=_strict(browser_raw, "max_concurrent", "browser"),
         timeouts=_parse_section_strict(TimeoutConfig, _require_section(raw, "timeouts"), "timeouts"),
         llm=_parse_section_strict(LLMConfig, _require_section(raw, "llm"), "llm"),
         captcha=_parse_section_strict(CaptchaConfig, _require_section(raw, "captcha"), "captcha"),

@@ -34,12 +34,6 @@ from .session import save_session
 
 _LOG = logging.getLogger(__name__)
 
-# ── Constants ─────────────────────────────────────────────────────────
-
-_LOGIN_URL = "https://artificialanalysis.ai/login"
-_BASE_URL = "https://artificialanalysis.ai"
-
-
 # ── Step helpers ──────────────────────────────────────────────────────
 
 async def _fill_email_and_submit(page: Page, email: str, log_fn: LogFn) -> None:
@@ -72,7 +66,7 @@ async def _fetch_magic_link(mailbox: Mailbox, timeout: int, log_fn: LogFn) -> st
     return _html.unescape(link).rstrip(".,;)")
 
 
-async def _navigate_magic_link(page: Page, link: str, timeout_ms: int, log_fn: LogFn) -> str:
+async def _navigate_magic_link(page: Page, link: str, base_url: str, timeout_ms: int, log_fn: LogFn) -> str:
     """Navigate magic link, handle JSON response, return org slug."""
     await page.goto(link, timeout=timeout_ms * 2)
     await page.wait_for_timeout(3000)
@@ -82,7 +76,7 @@ async def _navigate_magic_link(page: Page, link: str, timeout_ms: int, log_fn: L
     # Magic link verify returns JSON → need to navigate to /orgs
     if '"token"' in body:
         log_fn("  Got auth token — navigating to dashboard...")
-        await page.goto(f"{_BASE_URL}/orgs", timeout=timeout_ms * 2)
+        await page.goto(f"{base_url}/orgs", timeout=timeout_ms * 2)
         await page.wait_for_load_state("domcontentloaded", timeout=timeout_ms)
         await page.wait_for_timeout(3000)
 
@@ -101,10 +95,10 @@ async def _navigate_magic_link(page: Page, link: str, timeout_ms: int, log_fn: L
 
 
 async def _create_api_key(
-    page: Page, org_slug: str, timeout_ms: int, key_label: str, log_fn: LogFn, debug_dir: Path,
+    page: Page, org_slug: str, base_url: str, timeout_ms: int, key_label: str, log_fn: LogFn, debug_dir: Path,
 ) -> str:
     """Navigate to API Access page and create a new API key."""
-    api_url = f"{_BASE_URL}/orgs/{org_slug}/api-access"
+    api_url = f"{base_url}/orgs/{org_slug}/api-access"
     log_fn(f"  Opening {api_url}")
     await page.goto(api_url, timeout=timeout_ms * 2, wait_until="domcontentloaded")
     await page.wait_for_timeout(2000)
@@ -148,9 +142,9 @@ async def _create_api_key(
     return api_key
 
 
-async def _accept_image_lab_terms(page: Page, timeout_ms: int, log_fn: LogFn, debug_dir: Path) -> None:
+async def _accept_image_lab_terms(page: Page, base_url: str, timeout_ms: int, log_fn: LogFn, debug_dir: Path) -> None:
     """Navigate to Image Lab, trigger terms dialog, and accept."""
-    image_lab_url = f"{_BASE_URL}/image/image-lab"
+    image_lab_url = f"{base_url}/image/image-lab"
     log_fn(f"  Opening {image_lab_url}...")
     await page.goto(image_lab_url, timeout=timeout_ms * 2, wait_until="domcontentloaded")
     await page.wait_for_timeout(3000)
@@ -194,8 +188,8 @@ async def _signup_flow(
     aa_cfg = cfg.artificialanalysis
     debug_dir = cfg.base_dir / "debug"
 
-    log_fn(f"\n[1/5] Opening {_LOGIN_URL}...")
-    await page.goto(_LOGIN_URL, timeout=t.page_load * 2, wait_until="domcontentloaded")
+    log_fn(f"\n[1/5] Opening {aa_cfg.login_url}...")
+    await page.goto(aa_cfg.login_url, timeout=t.page_load * 2, wait_until="domcontentloaded")
     await page.wait_for_timeout(t.nav_delay)
     await _dump_debug(page, "aa_01_login.html", debug_dir)
 
@@ -210,16 +204,16 @@ async def _signup_flow(
     log_fn(f"  Link: {link[:80]}...")
 
     log_fn("\n[4/5] Navigating magic link...")
-    org_slug = await _navigate_magic_link(page, link, t.page_load, log_fn)
+    org_slug = await _navigate_magic_link(page, link, aa_cfg.base_url, t.page_load, log_fn)
     log_fn(f"  Org slug: {org_slug}")
     await _dump_debug(page, "aa_03_dashboard.html", debug_dir)
 
     log_fn("\n[4.5/5] Accepting Image Lab Terms of Use...")
-    await _accept_image_lab_terms(page, t.page_load, log_fn, debug_dir)
+    await _accept_image_lab_terms(page, aa_cfg.base_url, t.page_load, log_fn, debug_dir)
 
     log_fn("\n[5/5] Creating API key...")
     api_key = await _create_api_key(
-        page, org_slug, t.page_load, cfg.register.api_key_label, log_fn, debug_dir,
+        page, org_slug, aa_cfg.base_url, t.page_load, cfg.register.api_key_label, log_fn, debug_dir,
     )
 
     return AccountRecord(

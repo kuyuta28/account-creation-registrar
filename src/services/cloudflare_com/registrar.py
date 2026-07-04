@@ -52,8 +52,8 @@ from ..protocols import LogFn, SaveFn
 
 # -- Pure helpers ---------------------------------------------------------
 
-def _extract_account_id(url: str) -> str | None:
-    m = re.search(r"dash\.cloudflare\.com/([0-9a-f]{32})/", url)
+def _extract_account_id(url: str, account_id_regex: str) -> str | None:
+    m = re.search(account_id_regex, url)
     return m.group(1) if m else None
 
 
@@ -418,7 +418,7 @@ async def _signup_flow(
     log_fn("  Waiting for redirect: email-verification → dashboard...")
     try:
         await page.wait_for_url(
-            lambda u: re.search(r"dash\.cloudflare\.com/([0-9a-f]{32})/", u),
+            lambda u: re.search(cfg.cloudflare.account_id_regex, u),
             timeout=t.page_load * 2,
         )
     except PlaywrightTimeoutError as exc:
@@ -430,7 +430,7 @@ async def _signup_flow(
     log_fn("\n[8/9] Skipping onboarding...")
     await _skip_onboarding(page, cfg, log_fn)
 
-    account_id = _extract_account_id(page.url)
+    account_id = _extract_account_id(page.url, cfg.cloudflare.account_id_regex)
     if not account_id:
         await _dump_debug(page, "cf_no_account_id.html", debug_dir)
         raise RetryableRegistrationError(f"Could not extract account_id from URL: {page.url}")
