@@ -1,0 +1,38 @@
+ninerouter:
+  # 9Router dashboard — service riêng, tao chỉ dùng (không quản lý code).
+  # password đọc qua env var NINEROUTER_PASSWORD (không hardcode trong file).
+  dashboard_url: http://localhost:20128/dashboard/providers/cloudflare-ai
+  login_path: /login
+  target_path: /cloudflare-ai
+
+  # Login form
+  login_password_selector: 'input[placeholder="Enter password"]'
+  login_button_text: Login
+  login_password_visible_timeout_ms: 10000
+  login_redirect_timeout_ms: 15000
+
+  # Add button + panel scope
+  add_button_xpath: 'xpath=//button[normalize-space()="addAdd"]'
+  add_panel_h2: Add Cloudflare API Key
+  add_button_visible_timeout_ms: 10000
+  add_panel_visible_timeout_ms: 10000
+
+  # Form fields
+  name_input_selector: 'input[placeholder="Production Key"]'
+  api_key_input_selector: 'input[type="password"]'
+  account_id_input_selector: 'input[placeholder="abc123def456..."]'
+
+  # Check button + badge
+  check_button_text: Check
+  check_enable_timeout_ms: 10000
+  badge_valid_text: Valid
+  badge_invalid_text: Invalid
+  badge_visible_timeout_ms: 30000
+
+  # Save button
+  save_button_text: Save
+  save_enable_timeout_ms: 5000
+  save_panel_hidden_timeout_ms: 15000
+
+  # _wait_enabled poll interval
+  button_enable_poll_interval_ms: 150

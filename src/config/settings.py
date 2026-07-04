@@ -200,9 +200,33 @@ class NineRouterConfig:
     """9Router dashboard — service riêng, tao chỉ dùng (không quản lý code).
 
     Dùng để auto-add Cloudflare account sau khi tạo: fill form Add → Check → Save.
+    Selectors/timeouts cho task add_cf_to_9router — DOM đã verify 2026-07-04.
+    password đọc qua env NINEROUTER_PASSWORD.
     """
     dashboard_url: str = "http://localhost:20128/dashboard/providers/cloudflare-ai"
     password: str = field(default_factory=lambda: os.getenv("NINEROUTER_PASSWORD", ""))
+    login_path: str = "/login"
+    target_path: str = "/cloudflare-ai"
+    login_password_selector: str = 'input[placeholder="Enter password"]'
+    login_button_text: str = "Login"
+    login_password_visible_timeout_ms: int = 10_000
+    login_redirect_timeout_ms: int = 15_000
+    add_button_xpath: str = 'xpath=//button[normalize-space()="addAdd"]'
+    add_panel_h2: str = "Add Cloudflare API Key"
+    add_button_visible_timeout_ms: int = 10_000
+    add_panel_visible_timeout_ms: int = 10_000
+    name_input_selector: str = 'input[placeholder="Production Key"]'
+    api_key_input_selector: str = 'input[type="password"]'
+    account_id_input_selector: str = 'input[placeholder="abc123def456..."]'
+    check_button_text: str = "Check"
+    check_enable_timeout_ms: int = 10_000
+    badge_valid_text: str = "Valid"
+    badge_invalid_text: str = "Invalid"
+    badge_visible_timeout_ms: int = 30_000
+    save_button_text: str = "Save"
+    save_enable_timeout_ms: int = 5_000
+    save_panel_hidden_timeout_ms: int = 15_000
+    button_enable_poll_interval_ms: int = 150
 
 
 @dataclass(frozen=True)
@@ -651,6 +675,7 @@ _CONFIG_FILES = (
     "artificialanalysis.yaml",
     "sentry.yaml",
     "cloudflare.yaml",
+    "ninerouter.yaml",
 )
 
 
