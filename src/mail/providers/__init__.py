@@ -1,6 +1,5 @@
 """mail/providers/__init__.py"""
 from .mail_tm import create_mailbox as mail_tm_create, get_messages as mail_tm_get, get_message_body as mail_tm_body, wait_for_message as mail_tm_wait
-from .mailslurp_com import create_mailbox as mailslurp_create, get_messages as mailslurp_get, get_message_body as mailslurp_body, wait_for_message as mailslurp_wait
 from .testmail_app import create_mailbox as testmail_create, get_messages as testmail_get, wait_for_message as testmail_wait
 from .guerrillamail_com import create_mailbox as guerrillamail_create, get_messages as guerrillamail_get, get_message_body as guerrillamail_body, wait_for_message as guerrillamail_wait
 from .mailosaur_com import create_mailbox as mailosaur_create, get_messages as mailosaur_get, get_message_body as mailosaur_body, wait_for_message as mailosaur_wait
@@ -31,10 +30,6 @@ __all__ = [
     "mailosaur_get",
     "mailosaur_wait",
     "load_provider_connections",
-    "mailslurp_body",
-    "mailslurp_create",
-    "mailslurp_get",
-    "mailslurp_wait",
     "testmail_create",
     "testmail_get",
     "testmail_wait",
