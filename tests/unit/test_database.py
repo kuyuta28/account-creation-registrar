@@ -183,37 +183,37 @@ class TestMailProvidersDB:
         assert any(r["connection_str"] == "https://api.mail.tm" for r in rows)
 
     def test_upsert_creates_provider(self, tmp_db):
-        upsert_mail_provider(tmp_db, "mailslurp.com", api_key="sk_unitabc", label="unit")
+        upsert_mail_provider(tmp_db, "mailslurp_legacy.local", api_key="sk_unitabc", label="unit")
         rows = get_mail_providers(tmp_db)
-        assert any(r["connection_str"] == "mailslurp.com:sk_unitabc" for r in rows)
+        assert any(r["connection_str"] == "mailslurp_legacy.local:sk_unitabc" for r in rows)
 
     def test_upsert_returns_integer_id(self, tmp_db):
-        pid = upsert_mail_provider(tmp_db, "mailslurp.com", api_key="sk_id_check")
+        pid = upsert_mail_provider(tmp_db, "mailslurp_legacy.local", api_key="sk_id_check")
         assert isinstance(pid, int)
         assert pid > 0
 
     def test_upsert_idempotent_no_duplicate_rows(self, tmp_db):
         for _ in range(3):
-            upsert_mail_provider(tmp_db, "mailslurp.com", api_key="sk_idem")
-        matching = [r for r in get_mail_providers(tmp_db) if r["connection_str"] == "mailslurp.com:sk_idem"]
+            upsert_mail_provider(tmp_db, "mailslurp_legacy.local", api_key="sk_idem")
+        matching = [r for r in get_mail_providers(tmp_db) if r["connection_str"] == "mailslurp_legacy.local:sk_idem"]
         assert len(matching) == 1
 
     def test_get_returns_all_active_providers(self, tmp_db):
-        upsert_mail_provider(tmp_db, "mailslurp.com", api_key="sk_a")
-        upsert_mail_provider(tmp_db, "mailslurp.com", api_key="sk_b")
+        upsert_mail_provider(tmp_db, "mailslurp_legacy.local", api_key="sk_a")
+        upsert_mail_provider(tmp_db, "mailslurp_legacy.local", api_key="sk_b")
         conn_strs = {r["connection_str"] for r in get_mail_providers(tmp_db)}
-        assert "mailslurp.com:sk_a" in conn_strs
-        assert "mailslurp.com:sk_b" in conn_strs
+        assert "mailslurp_legacy.local:sk_a" in conn_strs
+        assert "mailslurp_legacy.local:sk_b" in conn_strs
 
     def test_new_domain_has_no_tags(self, tmp_db):
         """Domain mới không tự động có tags — user phải gán qua UI."""
-        upsert_mail_provider(tmp_db, "mailslurp.com", api_key="sk_any_tag")
+        upsert_mail_provider(tmp_db, "mailslurp_legacy.local", api_key="sk_any_tag")
         # Không có tags → không visible cho bất kỳ service nào
         rows = get_mail_providers(tmp_db, service_tag="chatgpt")
-        assert not any(r["connection_str"] == "mailslurp.com:sk_any_tag" for r in rows)
+        assert not any(r["connection_str"] == "mailslurp_legacy.local:sk_any_tag" for r in rows)
         # Nhưng vẫn visible khi query all (không filter service)
         all_rows = get_mail_providers(tmp_db)
-        assert any(r["connection_str"] == "mailslurp.com:sk_any_tag" for r in all_rows)
+        assert any(r["connection_str"] == "mailslurp_legacy.local:sk_any_tag" for r in all_rows)
 
     def test_specific_tag_only_visible_to_that_service(self, tmp_db):
         from common.database import set_provider_domain_tags
@@ -230,27 +230,27 @@ class TestMailProvidersDB:
         )
 
     def test_disabled_provider_excluded(self, tmp_db):
-        upsert_mail_provider(tmp_db, "mailslurp.com", api_key="sk_will_disable")
+        upsert_mail_provider(tmp_db, "mailslurp_legacy.local", api_key="sk_will_disable")
         with Session(_get_engine(tmp_db)) as s:
             s.execute(
                 sa_update(_MailProvider)
                 .where(
-                    _MailProvider.provider_type == "mailslurp.com",
+                    _MailProvider.provider_type == "mailslurp_legacy.local",
                     _MailProvider.api_key == "sk_will_disable",
                 )
                 .values(disabled=True)
             )
             s.commit()
         rows = get_mail_providers(tmp_db)
-        assert not any(r["connection_str"] == "mailslurp.com:sk_will_disable" for r in rows)
+        assert not any(r["connection_str"] == "mailslurp_legacy.local:sk_will_disable" for r in rows)
 
     def test_row_has_expected_keys(self, tmp_db):
-        upsert_mail_provider(tmp_db, "mailslurp.com", api_key="sk_fields", label="test_label")
-        row = next(r for r in get_mail_providers(tmp_db) if r["connection_str"] == "mailslurp.com:sk_fields")
+        upsert_mail_provider(tmp_db, "mailslurp_legacy.local", api_key="sk_fields", label="test_label")
+        row = next(r for r in get_mail_providers(tmp_db) if r["connection_str"] == "mailslurp_legacy.local:sk_fields")
         for key in ("id", "provider_type", "api_key", "server_id", "connection_str", "label", "disabled", "fail_count", "created_at"):
             assert key in row, f"missing key: {key}"
         assert row["label"] == "test_label"
-        assert row["provider_type"] == "mailslurp.com"
+        assert row["provider_type"] == "mailslurp_legacy.local"
         assert row["api_key"] == "sk_fields"
         assert row["server_id"] == ""
         assert row["disabled"] is False
@@ -260,10 +260,10 @@ class TestMailProvidersDB:
         assert rows == []
 
     def test_service_tag_none_returns_all(self, tmp_db):
-        upsert_mail_provider(tmp_db, "mailslurp.com", api_key="sk_all")
+        upsert_mail_provider(tmp_db, "mailslurp_legacy.local", api_key="sk_all")
         upsert_mail_provider(tmp_db, "testmail.app", api_key="uuid-all", server_id="ns2")
         all_rows = get_mail_providers(tmp_db, service_tag=None)
         conn_strs = {r["connection_str"] for r in all_rows}
-        assert "mailslurp.com:sk_all" in conn_strs
+        assert "mailslurp_legacy.local:sk_all" in conn_strs
         assert "testmail.app:ns2:uuid-all" in conn_strs
 

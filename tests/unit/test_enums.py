@@ -109,6 +109,6 @@ class TestErrorCode:
         expected = {
             "NOT_FOUND", "CONFLICT", "VALIDATION_ERROR", "INTERNAL_ERROR",
             "UNSUPPORTED_SERVICE", "ALREADY_RUNNING", "SESSION_EXPIRED",
-            "NO_ACCOUNTS", "JOB_CANCELLED", "TIMEOUT",
+            "NO_ACCOUNTS", "JOB_CANCELLED", "TIMEOUT", "CONFIGURATION_ERROR",
         }
         assert {c.value for c in ErrorCode} == expected

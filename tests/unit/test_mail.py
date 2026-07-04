@@ -52,7 +52,7 @@ class TestAuthHeaders:
 class TestProviderKind:
     def test_mailslurp_prefix(self):
         from src.mail._base import provider_kind
-        assert provider_kind("mailslurp.com:some-key") == "mailslurp.com"
+        assert provider_kind("mailslurp_legacy.local:some-key") == "mailslurp_legacy.local"
 
     def test_testmail_prefix(self):
         from src.mail._base import provider_kind
@@ -70,8 +70,8 @@ class TestProviderKind:
 class TestProviderDisplayName:
     def test_mailslurp_truncates_key(self):
         from src.mail._base import provider_display_name
-        name = provider_display_name("mailslurp.com:abcdef1234567890")
-        assert "mailslurp.com:..." in name
+        name = provider_display_name("mailslurp_legacy.local:abcdef1234567890")
+        assert "mailslurp_legacy.local:..." in name
         assert "34567890" in name
 
     def test_testmail_shows_namespace(self):

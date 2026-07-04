@@ -38,12 +38,12 @@ class TestMailConfigProviders:
         mail = self._mail()
         mock_rows = [
             {"connection_str": "testmail.app:ns:uuid-key"},
-            {"connection_str": "mailslurp.com:sk_abc"},
+            {"connection_str": "mailslurp_legacy.local:sk_abc"},
         ]
         with patch("common.database.get_mail_providers", return_value=mock_rows):
             result = mail.providers_for("testmail")
         assert "testmail.app:ns:uuid-key" in result
-        assert "mailslurp.com:sk_abc" in result
+        assert "mailslurp_legacy.local:sk_abc" in result
 
     def test_providers_for_returns_empty_when_db_empty(self):
         from unittest.mock import patch
