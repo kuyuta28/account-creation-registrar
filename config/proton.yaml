@@ -1,0 +1,26 @@
+proton:
+  signup_url: "https://account.proton.me/signup?plan=free"
+  signup_page_load_multiplier: 3
+
+  # Signup iframe detection
+  signup_iframe_selector: iframe
+  signup_iframe_url_contains: Name=email
+  username_selector: "#username"
+  username_taken_text: Username already used
+  username_max_attempts: 5
+  signup_iframe_timeout_ms: 30000
+
+  # Password fields
+  password_selector: "#password"
+  password_confirm_selector: "#password-confirm"
+
+  # Submit
+  submit_selector: 'button[type="submit"]'
+  create_account_button_text: Create account
+
+  # Post-signup popup dismiss
+  dismiss_popup_texts:
+    - Skip
+    - Maybe later
+    - No, thanks
+    - Not now

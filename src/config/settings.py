@@ -230,6 +230,24 @@ class NineRouterConfig:
 
 
 @dataclass(frozen=True)
+class ProtonConfig:
+    """Proton Mail registration — selectors/texts/timeouts cho register_proton."""
+    signup_url: str = "https://account.proton.me/signup?plan=free"
+    signup_page_load_multiplier: int = 3
+    signup_iframe_selector: str = "iframe"
+    signup_iframe_url_contains: str = "Name=email"
+    username_selector: str = "#username"
+    username_taken_text: str = "Username already used"
+    username_max_attempts: int = 5
+    signup_iframe_timeout_ms: int = 30_000
+    password_selector: str = "#password"
+    password_confirm_selector: str = "#password-confirm"
+    submit_selector: str = 'button[type="submit"]'
+    create_account_button_text: str = "Create account"
+    dismiss_popup_texts: tuple[str, ...] = ("Skip", "Maybe later", "No, thanks", "Not now")
+
+
+@dataclass(frozen=True)
 class MailConfig:
     cooldown_sec: int = 120
     max_consecutive_fails: int = 3
@@ -522,6 +540,7 @@ class AppConfig:
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     cloudflare: CloudflareConfig = field(default_factory=CloudflareConfig)
     ninerouter: NineRouterConfig = field(default_factory=NineRouterConfig)
+    proton: ProtonConfig = field(default_factory=ProtonConfig)
     proxy: ProxyConfig | None = None
     base_dir: Path = field(default_factory=lambda: Path(__file__).parent.parent.parent)
 
@@ -676,6 +695,7 @@ _CONFIG_FILES = (
     "sentry.yaml",
     "cloudflare.yaml",
     "ninerouter.yaml",
+    "proton.yaml",
 )
 
 
@@ -721,6 +741,12 @@ def _parse_ninerouter(raw: dict | None) -> NineRouterConfig:
     if not raw:
         return NineRouterConfig()
     return _parse_section_strict(NineRouterConfig, raw, "ninerouter")
+
+
+def _parse_proton(raw: dict | None) -> ProtonConfig:
+    if not raw:
+        return ProtonConfig()
+    return _parse_section_strict(ProtonConfig, raw, "proton")
 
 
 def _parse_database(raw: dict | None) -> DatabaseConfig:
@@ -775,6 +801,7 @@ def load_config(path: Path | None = None) -> AppConfig:
         database=_parse_database(raw.get("database")),
         cloudflare=_parse_cloudflare(raw.get("cloudflare")),
         ninerouter=_parse_ninerouter(raw.get("ninerouter")),
+        proton=_parse_proton(raw.get("proton")),
         proxy=_parse_proxy(raw.get("proxy", {})),
         base_dir=base_dir,
     )

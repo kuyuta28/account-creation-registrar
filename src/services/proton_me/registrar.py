@@ -50,37 +50,38 @@ async def register_proton(
 
 
 async def _run(page, username: str, password: str, cfg: AppConfig, log_fn: LogFn, save_fn: SaveFn) -> AccountRecord | None:
+    p = cfg.proton
     log_fn("\n[1/6] Opening Proton signup...")
-    await page.goto("https://account.proton.me/signup?plan=free", timeout=cfg.timeouts.page_load * 3)
+    await page.goto(p.signup_url, timeout=cfg.timeouts.page_load * p.signup_page_load_multiplier)
     await page.wait_for_load_state("domcontentloaded", timeout=cfg.timeouts.page_load)
 
     log_fn("\n[2/6] Filling username...")
-    frame = await _find_signup_iframe(page, cfg.timeouts.page_load)
+    frame = await _find_signup_iframe(page, cfg.timeouts.page_load * p.signup_page_load_multiplier, p)
     if not frame:
         raise RuntimeError("Cannot find signup iframe")
 
-    for attempt in range(5):
+    for attempt in range(p.username_max_attempts):
         if attempt > 0:
             username = generate_username(17)
             log_fn(f"  Retry {attempt}: {username}")
-        if await _fill_username(frame, username):
+        if await _fill_username(frame, username, p):
             log_fn(f"  ✓ Username '{username}' available")
             break
     else:
-        raise RuntimeError("Could not find available username after 5 attempts")
+        raise RuntimeError(f"Could not find available username after {p.username_max_attempts} attempts")
 
     log_fn("\n[3/6] Filling password...")
-    await page.locator("#password").fill(password)
-    confirm = page.locator("#password-confirm")
+    await page.locator(p.password_selector).fill(password)
+    confirm = page.locator(p.password_confirm_selector)
     await confirm.wait_for(state="visible", timeout=cfg.timeouts.page_load)
     await confirm.fill(password)
 
     log_fn("\n[4/6] Submitting...")
-    submit = page.locator('button[type="submit"]')
+    submit = page.locator(p.submit_selector)
     if await submit.is_visible():
         await submit.click()
     else:
-        await page.get_by_text("Create account").click()
+        await page.get_by_text(p.create_account_button_text).click()
 
     record = AccountRecord(service="PROTON", email=f"{username}@protonmail.com", password=password)
     await asyncio.to_thread(save_fn, record)
@@ -104,7 +105,7 @@ async def _wait_for_inbox(page, cfg: AppConfig, log_fn: LogFn) -> None:
     max_polls = (cfg.timeouts.email_wait * 1000) // cfg.timeouts.nav_delay
     for _ in range(max_polls):
         await page.wait_for_timeout(cfg.timeouts.nav_delay)
-        await _dismiss_popups(page)
+        await _dismiss_popups(page, cfg.proton)
         url = page.url.lower()
         if "mail" in url and ("inbox" in url or "all-mail" in url):
             log_fn("  ✓ Reached mail dashboard!")
@@ -113,19 +114,19 @@ async def _wait_for_inbox(page, cfg: AppConfig, log_fn: LogFn) -> None:
 
 # ── pure helpers ──────────────────────────────────────────────────────────────
 
-async def _find_signup_iframe(page, timeout: int = 30_000):
+async def _find_signup_iframe(page, timeout: int, p) :
     """Return the signup iframe frame or None."""
-    await page.wait_for_selector("iframe", state="attached", timeout=timeout)
+    await page.wait_for_selector(p.signup_iframe_selector, state="attached", timeout=timeout)
     for frame in page.frames:
-        if "Name=email" in frame.url or await frame.locator("#username").count() > 0:
+        if p.signup_iframe_url_contains in frame.url or await frame.locator(p.username_selector).count() > 0:
             return frame
     return None
 
 
-async def _fill_username(frame, username: str) -> bool:
+async def _fill_username(frame, username: str, p) -> bool:
     """Inject username via React-compatible approach. Returns True if no 'already used' error."""
     await frame.evaluate(f"""() => {{
-        const input = document.querySelector('#username');
+        const input = document.querySelector('{p.username_selector}');
         if (input) {{
             const setter = Object.getOwnPropertyDescriptor(
                 window.HTMLInputElement.prototype, 'value'
@@ -135,7 +136,7 @@ async def _fill_username(frame, username: str) -> bool:
         }}
     }}""")
     try:
-        if await frame.locator('span:has-text("Username already used")').count() > 0:
+        if await frame.locator(f'span:has-text("{p.username_taken_text}")').count() > 0:
             return False
     except Exception as e:  # noqa: BLE001 - best-effort optional UI action
         import logging
@@ -143,8 +144,8 @@ async def _fill_username(frame, username: str) -> bool:
     return True
 
 
-async def _dismiss_popups(page) -> None:
-    for text in ("Skip", "Maybe later", "No, thanks", "Not now"):
+async def _dismiss_popups(page, p) -> None:
+    for text in p.dismiss_popup_texts:
         try:
             btn = page.get_by_text(text, exact=False)
             if await btn.count() > 0 and await btn.first.is_visible():
