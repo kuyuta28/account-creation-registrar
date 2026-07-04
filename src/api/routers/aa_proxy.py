@@ -121,7 +121,7 @@ async def _aa_post(path: str, cookies: dict, body: dict) -> Any:
             cookies=cookies,
             headers=_build_headers(),
             json=body,
-            timeout=60,
+            timeout=cfg.post_timeout_sec,
         )
     if r.status_code == 401:
         raise AppError(ErrorCode.SESSION_EXPIRED, "Session AA hết hạn hoặc không hợp lệ", 401)
@@ -289,7 +289,7 @@ async def generate_images(body: GenerateBody):
             cookies=cookies,
             headers=_build_headers(),
             json=payload,
-            timeout=120,
+            timeout=cfg.generate_timeout_sec,
         )
 
     if r.status_code == 401:
@@ -313,8 +313,9 @@ async def generate_images(body: GenerateBody):
 @router.get("/image-proxy")
 async def image_proxy(url: str):
     """Proxy + convert ảnh từ CDN sang PNG để download (fallback)."""
+    cfg = _aa_cfg()
     async with httpx.AsyncClient() as client:
-        r = await client.get(url, timeout=30, follow_redirects=True)
+        r = await client.get(url, timeout=cfg.image_proxy_timeout_sec, follow_redirects=True)
     if r.status_code != 200:
         raise AppError(ErrorCode.INTERNAL, f"Không thể tải file: {r.status_code}", 502)
 
@@ -368,8 +369,9 @@ async def image_download(body: DownloadBody):
         raise AppError(ErrorCode.INTERNAL, f"AA không trả về URL cho image {body.image_id}", 500)
 
     # Fetch file từ R2 (không cần auth)
+    cfg = _aa_cfg()
     async with httpx.AsyncClient() as client:
-        r = await client.get(signed_url, timeout=60, follow_redirects=True)
+        r = await client.get(signed_url, timeout=cfg.r2_download_timeout_sec, follow_redirects=True)
     if r.status_code != 200:
         raise AppError(ErrorCode.INTERNAL, f"Không tải được file từ R2: {r.status_code}", 502)
 
@@ -457,7 +459,7 @@ async def check_all_sessions():
         _check_state.update({"running": True, "cancelled": False, "total": total, "checked": 0,
                               "valid": 0, "expired": 0, "errors": 0, "results": []})
 
-    sem = asyncio.Semaphore(15)
+    sem = asyncio.Semaphore(_aa_cfg().check_sessions_concurrency)
 
     async def _check_one(acc: dict) -> None:
         email = acc["email"]
@@ -709,7 +711,7 @@ async def batch_accept_terms(all: bool = False):
         "Referer": aa_cfg.image_lab_url,
         "User-Agent": aa_cfg.user_agent,
     }
-    sem = asyncio.Semaphore(20)
+    sem = asyncio.Semaphore(aa_cfg.accept_terms_concurrency)
 
     async def _accept_one(acc: dict, client: httpx.AsyncClient) -> None:
         email = acc["email"]

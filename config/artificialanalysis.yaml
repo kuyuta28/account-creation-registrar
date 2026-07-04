@@ -8,3 +8,11 @@ artificialanalysis:
   terms_acceptance_url: "https://artificialanalysis.ai/api/playground/terms-acceptance"
   user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
   check_timeout_sec: 15
+
+  # aa_proxy.py HTTP timeouts (giây) + concurrency semaphores
+  post_timeout_sec: 60
+  generate_timeout_sec: 120
+  image_proxy_timeout_sec: 30
+  r2_download_timeout_sec: 60
+  check_sessions_concurrency: 15
+  accept_terms_concurrency: 20

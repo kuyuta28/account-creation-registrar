@@ -233,5 +233,8 @@ async def open_browser_legacy(req: OpenRequest) -> dict[str, Any]:
 if __name__ == "__main__":
     import uvicorn
     _setup_logging()
-    _log.info("Browser Gateway starting on 127.0.0.1:9999 (max_concurrent=%d)", MAX_CONCURRENT)
-    uvicorn.run(app, host="127.0.0.1", port=9999)
+    _log.info(
+        "Browser Gateway starting on %s:%d (max_concurrent=%d)",
+        CFG.api.gateway_host, CFG.api.gateway_port, MAX_CONCURRENT,
+    )
+    uvicorn.run(app, host=CFG.api.gateway_host, port=CFG.api.gateway_port)

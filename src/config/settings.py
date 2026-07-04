@@ -435,6 +435,13 @@ class ApiConfig:
     ))
     # URL cua host-browser-agent (chay tren host OS).
     host_browser_agent_url: str = field(default_factory=lambda: os.getenv("HOST_BROWSER_AGENT_URL", ""))
+    # Internal API key (X-Internal-Key header, service-to-service). Local 1-user:
+    # default ccs-internal, override qua env INTERNAL_API_KEY khi cần.
+    internal_api_key: str = field(default_factory=lambda: os.getenv("INTERNAL_API_KEY", "ccs-internal"))
+    # Browser Gateway (host_browser_agent.py) bind host/port.
+    gateway_host: str = "127.0.0.1"
+    gateway_port: int = 9999
+    gateway_ws_poll_interval_ms: int = 500
 
 
 @dataclass(frozen=True)
@@ -456,6 +463,13 @@ class ArtificialAnalysisConfig:
     terms_acceptance_url: str = "https://artificialanalysis.ai/api/playground/terms-acceptance"
     user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
     check_timeout_sec: int = 15
+    # aa_proxy.py HTTP timeouts (giây) + concurrency semaphores
+    post_timeout_sec: int = 60
+    generate_timeout_sec: int = 120
+    image_proxy_timeout_sec: int = 30
+    r2_download_timeout_sec: int = 60
+    check_sessions_concurrency: int = 15
+    accept_terms_concurrency: int = 20
 
 
 @dataclass(frozen=True)

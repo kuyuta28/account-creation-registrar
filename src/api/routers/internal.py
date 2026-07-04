@@ -6,22 +6,20 @@ Protected by X-Internal-Key header.
 """
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 
+from ...config.settings import load_config
 from ..schemas import ok
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
 
-_INTERNAL_KEY = os.getenv("INTERNAL_API_KEY", "ccs-internal")
-
-
 async def _require_internal_key(x_internal_key: str | None = Header(default=None)) -> str:
     """Validate internal API key. Returns key if valid, raises 403 otherwise."""
-    if x_internal_key is None or x_internal_key != _INTERNAL_KEY:
+    internal_key = load_config().api.internal_api_key
+    if x_internal_key is None or x_internal_key != internal_key:
         raise HTTPException(status_code=403, detail="Forbidden")
     return x_internal_key
 
