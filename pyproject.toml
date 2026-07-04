@@ -18,6 +18,7 @@ dependencies = [
     "requests>=2.31.0",
     "httpx>=0.25.0",
     "sqlalchemy>=2.0",
+    "asyncpg>=0.29.0",
     "pyotp>=2.9.0",
     "aioimaplib>=2.0.0",
     "sentry-sdk[fastapi]>=2.0.0",
@@ -51,7 +52,7 @@ include = ["src*"]
 asyncio_default_fixture_loop_scope = "function"
 
 # ---------------------------------------------------------------------------
-# Ruff — linter (cài: pip install ruff)
+# Ruff â€” linter (cÃ i: pip install ruff)
 # ---------------------------------------------------------------------------
 [tool.ruff]
 target-version = "py311"
@@ -61,37 +62,37 @@ line-length = 120
 select = [
     "E",      # pycodestyle errors
     "F",      # pyflakes
-    "BLE001", # blind exception: "except Exception" → phải có noqa hoặc raise
-    "E722",   # bare "except:" (không type)
+    "BLE001", # blind exception: "except Exception" â†’ pháº£i cÃ³ noqa hoáº·c raise
+    "E722",   # bare "except:" (khÃ´ng type)
     "UP",     # pyupgrade: f-string, type hints...
     "RUF",    # Ruff-specific rules
 ]
 ignore = [
-    "E501",   # line too long (dùng line-length=120 đủ rồi)
-    "UP007",  # Optional[X] → X | None (Python 3.10+ nhưng có thể confuse)
-    "RUF006", # asyncio.create_task fire-and-forget — intentional pattern trong toàn codebase
-    "RUF001", # ambiguous unicode chars trong string — Vietnamese text encoding display artifact
-    "RUF002", # ambiguous unicode chars trong docstring — Vietnamese text
-    "RUF003", # ambiguous unicode chars trong comment — Vietnamese text
-    "RUF022", # __all__ not sorted — grouped by category với comments, sort sẽ phá structure
+    "E501",   # line too long (dÃ¹ng line-length=120 Ä‘á»§ rá»“i)
+    "UP007",  # Optional[X] â†’ X | None (Python 3.10+ nhÆ°ng cÃ³ thá»ƒ confuse)
+    "RUF006", # asyncio.create_task fire-and-forget â€” intentional pattern trong toÃ n codebase
+    "RUF001", # ambiguous unicode chars trong string â€” Vietnamese text encoding display artifact
+    "RUF002", # ambiguous unicode chars trong docstring â€” Vietnamese text
+    "RUF003", # ambiguous unicode chars trong comment â€” Vietnamese text
+    "RUF022", # __all__ not sorted â€” grouped by category vá»›i comments, sort sáº½ phÃ¡ structure
 ]
 
 # ===== POLICY cho BLE001 =====
-# Dùng `# noqa: BLE001` CHỈ khi thuộc 1 trong 3 trường hợp sau:
-#   1. Best-effort IO: except Exception: pass  # đây là write stdout/log file, thất bại = skip
+# DÃ¹ng `# noqa: BLE001` CHá»ˆ khi thuá»™c 1 trong 3 trÆ°á»ng há»£p sau:
+#   1. Best-effort IO: except Exception: pass  # Ä‘Ã¢y lÃ  write stdout/log file, tháº¥t báº¡i = skip
 #   2. Cleanup then re-raise: except Exception: cleanup(); raise
 #   3. Batch error collector: except Exception as e: results.append({"ok": False, "error": str(e)})
 #
-# KHÔNG được dùng noqa: BLE001 trong business logic / registrar flow.
+# KHÃ”NG Ä‘Æ°á»£c dÃ¹ng noqa: BLE001 trong business logic / registrar flow.
 
 [tool.ruff.lint.per-file-ignores]
-# logger.py: write to stdout/log file — IO thất bại thì skip, không crash; late import _io intentional
+# logger.py: write to stdout/log file â€” IO tháº¥t báº¡i thÃ¬ skip, khÃ´ng crash; late import _io intentional
 "src/core/logger.py" = ["BLE001", "E402"]
-# page_utils.py: dump_debug_html — best-effort debug, không crash registrar
+# page_utils.py: dump_debug_html â€” best-effort debug, khÃ´ng crash registrar
 "src/core/page_utils.py" = ["BLE001"]
-# guard.py bản thân nó là utility — nhưng phải dùng PlaywrightTimeoutError
+# guard.py báº£n thÃ¢n nÃ³ lÃ  utility â€” nhÆ°ng pháº£i dÃ¹ng PlaywrightTimeoutError
 "src/core/guard.py" = []
-# log_manager.py: broadcast WebSocket — dead WS thì remove, không crash
+# log_manager.py: broadcast WebSocket â€” dead WS thÃ¬ remove, khÃ´ng crash
 "src/api/ws/log_manager.py" = ["BLE001"]
 # chatgpt registrar: late imports sau _LOG intentional (circular import avoidance)
 "src/services/chatgpt_com/registrar.py" = ["E402"]

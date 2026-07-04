@@ -687,7 +687,7 @@ Stream logs.
 
 **Prefix:** `/api/v1/mailbox`
 
-Quản lý temporary mailboxes từ mail providers (mail.tm, guerrillamail, mailslurp, testmail...).  
+Quản lý temporary mailboxes từ mail providers (mail.tm, guerrillamail, testmail...).  
 Khác với Gmail Mailboxes: đây là inbox tạm, tự động tạo khi đăng ký.
 
 ### `POST /mailbox`
@@ -867,15 +867,6 @@ Ghi đè content của 1 config file. Validate YAML trước khi save.
 **Request:** `{ "content": "yaml content here" }`
 
 **Errors:** `VALIDATION_ERROR (400)` nếu YAML invalid
-
----
-
-### `POST /config/mail/add-key`
-Thêm MailSlurp API key vào config.
-
-**Request:** `{ "key": "ms_key_..." }`
-
-**Response `data`:** `{ "total": 5 }` (total keys sau khi thêm)
 
 ---
 

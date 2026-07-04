@@ -167,7 +167,7 @@ Maps to `MailConfig`. Provider lists are stored in **SQLite DB**, not YAML.
 | `max_consecutive_fails` | int | `3` | Disable provider after this many consecutive failures |
 
 Providers are managed in `data/accounts.db` (`mail_providers` table).
-Each provider has a `type` (`mail.tm`, `mailslurp`, `testmail`), `api_key`, and
+Each provider has a `type` (`mail.tm`, `testmail`), `api_key`, and
 `provider_domain_tags` entries that control which services can use it.
 
 Tag `any` means the provider serves all services. Specific tags (e.g. `chatgpt`, `elevenlabs`)
