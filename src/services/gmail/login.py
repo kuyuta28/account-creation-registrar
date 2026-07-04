@@ -26,19 +26,6 @@ from common.totp import generate_totp
 from ..protocols import LogFn
 
 
-_GOOGLE_SIGN_IN = "https://accounts.google.com/signin"
-
-_SEL_EMAIL_INPUT  = 'input[type="email"]'
-_SEL_PASS_INPUT   = 'input[name="Passwd"]'
-_SEL_EMAIL_NEXT   = '#identifierNext'
-_SEL_PASS_NEXT    = '#passwordNext'
-_SEL_CHALLENGE_TOTP = '[data-challengetype="6"]'   # Google Authenticator option
-_SEL_TOTP_INPUT   = 'input[name="totpPin"]'
-_SEL_TOTP_NEXT    = '[id$="Next"]'
-
-_SUCCESS_URL = "myaccount.google.com"
-
-
 async def login(
     cfg: AppConfig,
     email: str,
@@ -61,35 +48,36 @@ async def login(
         RuntimeError: Nếu login thất bại ở bất kỳ bước nào.
     """
     _log = log_fn or print
+    g = cfg.gmail_login
 
     async with open_browser(cfg) as browser:
         context = await browser.new_context()
         page = await context.new_page()
 
         # Bước 1: Mở trang đăng nhập
-        _log(f"[gmail/login] Mở {_GOOGLE_SIGN_IN}")
-        await page.goto(_GOOGLE_SIGN_IN, wait_until="domcontentloaded")
+        _log(f"[gmail/login] Mở {g.signin_url}")
+        await page.goto(g.signin_url, wait_until="domcontentloaded")
 
         # Bước 2: Nhập email
-        await page.locator(_SEL_EMAIL_INPUT).fill(email)
-        await page.locator(_SEL_EMAIL_NEXT).click()
+        await page.locator(g.email_input).fill(email)
+        await page.locator(g.email_next).click()
         await page.wait_for_load_state("domcontentloaded")
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(g.post_email_delay_sec)
 
         # Bước 3: Nhập password
-        await page.locator(_SEL_PASS_INPUT).fill(password)
-        await page.locator(_SEL_PASS_NEXT).click()
+        await page.locator(g.password_input).fill(password)
+        await page.locator(g.password_next).click()
         await page.wait_for_load_state("domcontentloaded")
-        await asyncio.sleep(2)
+        await asyncio.sleep(g.post_password_delay_sec)
 
         # Bước 4: Detect và xử lý challenge/selection → click Google Authenticator
         if "challenge/selection" in page.url or "challenge/pwd" in page.url:
             _log("[gmail/login] Trang challenge/selection — click Google Authenticator (type=6)")
             try:
-                await page.locator(_SEL_CHALLENGE_TOTP).wait_for(state="visible", timeout=10_000)
-                await page.locator(_SEL_CHALLENGE_TOTP).click()
+                await page.locator(g.challenge_totp).wait_for(state="visible", timeout=g.challenge_visible_timeout_ms)
+                await page.locator(g.challenge_totp).click()
                 await page.wait_for_load_state("domcontentloaded")
-                await asyncio.sleep(2)
+                await asyncio.sleep(g.post_challenge_click_delay_sec)
             except PlaywrightTimeoutError:
                 raise RuntimeError(
                     f"Không tìm thấy Google Authenticator option — URL: {page.url}"
@@ -99,18 +87,18 @@ async def login(
         if "challenge/totp" in page.url:
             totp_code = generate_totp(totp_secret)
             _log(f"[gmail/login] Nhập TOTP code: {totp_code}")
-            await page.locator(_SEL_TOTP_INPUT).wait_for(state="visible", timeout=10_000)
-            await page.locator(_SEL_TOTP_INPUT).fill(totp_code)
-            await page.locator(_SEL_TOTP_NEXT).first.click()
+            await page.locator(g.totp_input).wait_for(state="visible", timeout=g.totp_visible_timeout_ms)
+            await page.locator(g.totp_input).fill(totp_code)
+            await page.locator(g.totp_next).first.click()
             await page.wait_for_load_state("domcontentloaded")
-            await asyncio.sleep(3)
+            await asyncio.sleep(g.post_totp_delay_sec)
         else:
             raise RuntimeError(
                 f"Không đến được trang TOTP — URL hiện tại: {page.url}"
             )
 
         # Bước 6: Verify thành công
-        if _SUCCESS_URL not in page.url:
+        if g.success_url not in page.url:
             raise RuntimeError(
                 f"Google login thất bại — URL sau TOTP: {page.url}"
             )

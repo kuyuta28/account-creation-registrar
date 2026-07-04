@@ -230,6 +230,27 @@ class NineRouterConfig:
 
 
 @dataclass(frozen=True)
+class GmailLoginConfig:
+    """Gmail TOTP 2FA login flow (src/services/gmail/login.py).
+    Khác google_oauth (OAuth chooser) — đây là direct login với TOTP."""
+    signin_url: str = "https://accounts.google.com/signin"
+    success_url: str = "myaccount.google.com"
+    email_input: str = 'input[type="email"]'
+    email_next: str = "#identifierNext"
+    password_input: str = 'input[name="Passwd"]'
+    password_next: str = "#passwordNext"
+    challenge_totp: str = '[data-challengetype="6"]'
+    totp_input: str = 'input[name="totpPin"]'
+    totp_next: str = '[id$="Next"]'
+    post_email_delay_sec: float = 1.5
+    post_password_delay_sec: float = 2.0
+    post_challenge_click_delay_sec: float = 2.0
+    post_totp_delay_sec: float = 3.0
+    challenge_visible_timeout_ms: int = 10_000
+    totp_visible_timeout_ms: int = 10_000
+
+
+@dataclass(frozen=True)
 class ProtonConfig:
     """Proton Mail registration — selectors/texts/timeouts cho register_proton."""
     signup_url: str = "https://account.proton.me/signup?plan=free"
@@ -541,6 +562,7 @@ class AppConfig:
     cloudflare: CloudflareConfig = field(default_factory=CloudflareConfig)
     ninerouter: NineRouterConfig = field(default_factory=NineRouterConfig)
     proton: ProtonConfig = field(default_factory=ProtonConfig)
+    gmail_login: GmailLoginConfig = field(default_factory=GmailLoginConfig)
     proxy: ProxyConfig | None = None
     base_dir: Path = field(default_factory=lambda: Path(__file__).parent.parent.parent)
 
@@ -696,6 +718,7 @@ _CONFIG_FILES = (
     "cloudflare.yaml",
     "ninerouter.yaml",
     "proton.yaml",
+    "gmail.yaml",
 )
 
 
@@ -747,6 +770,12 @@ def _parse_proton(raw: dict | None) -> ProtonConfig:
     if not raw:
         return ProtonConfig()
     return _parse_section_strict(ProtonConfig, raw, "proton")
+
+
+def _parse_gmail_login(raw: dict | None) -> GmailLoginConfig:
+    if not raw:
+        return GmailLoginConfig()
+    return _parse_section_strict(GmailLoginConfig, raw, "gmail")
 
 
 def _parse_database(raw: dict | None) -> DatabaseConfig:
@@ -802,6 +831,7 @@ def load_config(path: Path | None = None) -> AppConfig:
         cloudflare=_parse_cloudflare(raw.get("cloudflare")),
         ninerouter=_parse_ninerouter(raw.get("ninerouter")),
         proton=_parse_proton(raw.get("proton")),
+        gmail_login=_parse_gmail_login(raw.get("gmail")),
         proxy=_parse_proxy(raw.get("proxy", {})),
         base_dir=base_dir,
     )
