@@ -19,13 +19,16 @@ from typing import Any
 
 import httpx
 from PIL import Image
-from fastapi import APIRouter
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from ..exceptions import AppError
 from ..schemas import ErrorCode, ok
 from ..services.account_service import list_accounts
+from ..ws.log_manager import broadcast, get_bus, subscribe, unsubscribe
+
+_BATCH_RELOGIN_CHANNEL = "batch-relogin"
 
 router = APIRouter(prefix="/aa", tags=["aa-proxy"])
 
@@ -65,6 +68,33 @@ def _get_session_cookie(session_state: str) -> str:
 def _build_cookies(session_state: str) -> dict:
     data = json.loads(session_state)
     return {c["name"]: c["value"] for c in data.get("cookies", [])}
+
+
+async def _ensure_terms_accepted(cookies: dict) -> None:
+    """Accept Image Lab Terms of Use qua API (idempotent) trước khi generate.
+
+    AA trả 200/201 dù đã accept — gọi mỗi lần generate để đảm bảo terms không chặn.
+    401 → session expired, raise để lộ lỗi; lỗi khác (403/409/5xx) → best-effort,
+    generate sẽ tự raise nếu terms thực sự chặn.
+    """
+    cfg = _aa_cfg()
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Origin": cfg.base_url,
+        "Referer": cfg.image_lab_url,
+        "User-Agent": cfg.user_agent,
+    }
+    async with httpx.AsyncClient() as client:
+        r = await client.post(
+            cfg.terms_acceptance_url,
+            cookies=cookies,
+            headers=headers,
+            content=b"{}",
+            timeout=cfg.check_timeout_sec,
+        )
+    if r.status_code == 401:
+        raise AppError(ErrorCode.SESSION_EXPIRED, "Session AA hết hạn khi accept terms", 401)
 
 
 async def _aa_get(path: str, cookies: dict) -> Any:
@@ -125,7 +155,7 @@ class GenerateBody(BaseModel):
 @router.get("/session")
 async def get_aa_session(email: str):
     """Kiểm tra session AA và lấy thông tin org/balance."""
-    accounts = await list_accounts("ARTIFICIALANALYSIS")
+    accounts = (await list_accounts("ARTIFICIALANALYSIS"))["accounts"]
     account = next((a for a in accounts if a.get("email") == email), None)
     if not account:
         raise AppError(ErrorCode.NOT_FOUND, f"Không tìm thấy account {email}", 404)
@@ -168,7 +198,7 @@ async def get_aa_models(mode: str | None = "text_to_image"):
 @router.get("/generations")
 async def get_generations(email: str, limit: int = 20, cursor: str | None = None):
     """Lịch sử generations của account."""
-    accounts = await list_accounts("ARTIFICIALANALYSIS")
+    accounts = (await list_accounts("ARTIFICIALANALYSIS"))["accounts"]
     account = next((a for a in accounts if a.get("email") == email), None)
     if not account:
         raise AppError(ErrorCode.NOT_FOUND, f"Không tìm thấy account {email}", 404)
@@ -229,7 +259,7 @@ def _parse_sse_generations(sse_text: str) -> tuple[str, list[dict]]:
 @router.post("/generate")
 async def generate_images(body: GenerateBody):
     """Tạo generation mới qua AA API (SSE stream → parsed JSON)."""
-    accounts = await list_accounts("ARTIFICIALANALYSIS")
+    accounts = (await list_accounts("ARTIFICIALANALYSIS"))["accounts"]
     account = next((a for a in accounts if a.get("email") == body.email), None)
     if not account:
         raise AppError(ErrorCode.NOT_FOUND, f"Không tìm thấy account {body.email}", 404)
@@ -237,6 +267,9 @@ async def generate_images(body: GenerateBody):
         raise AppError(ErrorCode.SESSION_EXPIRED, f"Account {body.email} chưa có session_state", 401)
 
     cookies = _build_cookies(account["session_state"])
+
+    # Đảm bảo terms đã accept trước khi generate (idempotent, không cần browser).
+    await _ensure_terms_accepted(cookies)
 
     payload = {
         "hostModelIds": body.model_ids,
@@ -314,7 +347,7 @@ class DownloadBody(BaseModel):
 @router.post("/image-download")
 async def image_download(body: DownloadBody):
     """Gọi AA download API → lấy signed URL → fetch → convert PNG."""
-    accounts = await list_accounts("ARTIFICIALANALYSIS")
+    accounts = (await list_accounts("ARTIFICIALANALYSIS"))["accounts"]
     account = next((a for a in accounts if a.get("email") == body.email), None)
     if not account:
         raise AppError(ErrorCode.NOT_FOUND, f"Không tìm thấy account {body.email}", 404)
@@ -415,7 +448,7 @@ async def check_all_sessions():
         if _check_state["running"]:
             return ok({**_check_state, "message": "already running"})
 
-    accounts = await list_accounts("ARTIFICIALANALYSIS")
+    accounts = (await list_accounts("ARTIFICIALANALYSIS"))["accounts"]
     total = len(accounts)
     if total == 0:
         raise AppError(ErrorCode.NOT_FOUND, "Không có account AA nào", 404)
@@ -493,13 +526,36 @@ _relogin_state: dict[str, Any] = {
     "done": 0,
     "success": 0,
     "failed": 0,
+    "workers": 0,
     "results": [],
+    "logs": [],
 }
 
 
+class BatchReloginBody(BaseModel):
+    """workers = số luồng browser concurrent (gateway queue nếu vượt MAX_CONCURRENT).
+    only_expired=True giữ filter cũ (chỉ expired/error); False = relogin tất cả testmail.
+    """
+    workers: int = Field(default=5, ge=1, le=10)
+    only_expired: bool = Field(default=False)
+
+
+def _push_log(email: str, msg: str) -> None:
+    """Append log line vào state + broadcast tới WS subscriber. Non-blocking (create_task)."""
+    async def _emit() -> None:
+        async with _relogin_lock:
+            _relogin_state["logs"].append({"email": email, "msg": msg})
+        await broadcast(get_bus(), _BATCH_RELOGIN_CHANNEL, json.dumps({"email": email, "msg": msg}))
+    asyncio.create_task(_emit())
+
+
 @router.post("/batch-relogin")
-async def batch_relogin():
-    """Re-login toàn bộ AA testmail accounts bị expired (tuần tự — Playwright không chạy concurrent)."""
+async def batch_relogin(body: BatchReloginBody):
+    """Re-login toàn bộ AA testmail accounts concurrent qua Browser Gateway.
+
+    workers: số luồng (1-10). Gateway host MAX_CONCURRENT=4 nên >4 sẽ queue.
+    only_expired: True=chỉ expired/error, False=tất cả testmail (refresh cả valid).
+    """
     from ...config.settings import load_config
     from ...services.artificialanalysis_ai.registrar import relogin_artificialanalysis
 
@@ -507,27 +563,27 @@ async def batch_relogin():
         if _relogin_state["running"]:
             return ok({**_relogin_state, "message": "already running"})
 
-    accounts = await list_accounts("ARTIFICIALANALYSIS")
-    # Chỉ testmail bị expired — không relogin sharebot/maildrop/v.v. vì one-time
+    accounts = (await list_accounts("ARTIFICIALANALYSIS"))["accounts"]
     candidates = [
         a for a in accounts
         if a.get("email", "").endswith("@inbox.testmail.app")
-        and a.get("check_status") in ("expired", "error", None, "")
         and not a.get("disabled")
+        and (body.only_expired is False or a.get("check_status") in ("expired", "error", None, ""))
     ]
     total = len(candidates)
     if total == 0:
-        raise AppError(ErrorCode.NOT_FOUND, "Không có AA testmail account expired nào cần relogin", 404)
+        raise AppError(ErrorCode.NOT_FOUND, "Không có AA testmail account nào cần relogin", 404)
 
     async with _relogin_lock:
         _relogin_state.update({
             "running": True, "cancelled": False,
             "total": total, "done": 0, "success": 0, "failed": 0,
-            "results": [],
+            "workers": body.workers,
+            "results": [], "logs": [],
         })
 
     cfg = load_config()
-    sem = asyncio.Semaphore(5)
+    sem = asyncio.Semaphore(body.workers)
 
     async def _relogin_one(acc: dict) -> None:
         email = acc["email"]
@@ -538,14 +594,14 @@ async def batch_relogin():
             async with _relogin_lock:
                 if _relogin_state["cancelled"]:
                     return
-            logs: list[str] = []
+            status = "success"
+            error = ""
             try:
-                await relogin_artificialanalysis(email, cfg, logs.append)
-                status = "success"
-                error = ""
+                await relogin_artificialanalysis(email, cfg, lambda m: _push_log(email, m))
             except (RuntimeError, ValueError, httpx.HTTPError) as exc:
                 status = "failed"
                 error = str(exc)[:300]
+                _push_log(email, f"✗ {error}")
             async with _relogin_lock:
                 _relogin_state["done"] += 1
                 _relogin_state["success" if status == "success" else "failed"] += 1
@@ -559,9 +615,10 @@ async def batch_relogin():
         await asyncio.gather(*[_relogin_one(acc) for acc in candidates])
         async with _relogin_lock:
             _relogin_state["running"] = False
+        await broadcast(get_bus(), _BATCH_RELOGIN_CHANNEL, "__END__")
 
     asyncio.create_task(_worker())
-    return ok({"message": "started", "total": total})
+    return ok({"message": "started", "total": total, "workers": body.workers})
 
 
 @router.get("/batch-relogin/status")
@@ -571,9 +628,28 @@ async def batch_relogin_status():
         return ok(dict(_relogin_state))
 
 
+@router.websocket("/batch-relogin/logs")
+async def batch_relogin_logs_ws(ws: WebSocket):
+    """Stream log từng bước, từng account realtime."""
+    await ws.accept()
+    bus = get_bus()
+    await subscribe(bus, _BATCH_RELOGIN_CHANNEL, ws)
+    # Replay log đã có (nếu subscribe giữa chừng batch đang chạy).
+    async with _relogin_lock:
+        for entry in _relogin_state["logs"]:
+            await ws.send_text(json.dumps(entry))
+    try:
+        while True:
+            await ws.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await unsubscribe(bus, _BATCH_RELOGIN_CHANNEL, ws)
+
+
 @router.post("/batch-relogin/cancel")
 async def batch_relogin_cancel():
-    """Dừng batch re-login (sau khi account hiện tại xong)."""
+    """Dừng batch re-login — không lấy account mới; account đang chạy phải xong."""
     async with _relogin_lock:
         if not _relogin_state["running"]:
             return ok({"cancelled": False, "message": "not running"})
@@ -606,7 +682,7 @@ async def batch_accept_terms(all: bool = False):
         if _terms_state["running"]:
             return ok({**_terms_state, "message": "already running"})
 
-    accounts = await list_accounts("ARTIFICIALANALYSIS")
+    accounts = (await list_accounts("ARTIFICIALANALYSIS"))["accounts"]
     candidates = [
         a for a in accounts
         if a.get("session_state")
