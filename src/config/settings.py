@@ -170,6 +170,42 @@ class TestmailConfig:
 
 
 @dataclass(frozen=True)
+class CloudflareConfig:
+    signup_url: str = "https://dash.cloudflare.com/sign-up"
+    login_url: str = "https://dash.cloudflare.com/login"
+    token_create_url_template: str = "https://dash.cloudflare.com/{account_id}/api-tokens/create"
+    app_url_contains: str = "dash.cloudflare.com"
+    verification_wait_sec: int = 180
+    onboarding_skip_wait_ms: int = 2_000
+    post_submit_wait_ms: int = 3_000
+    check_timeout_sec: int = 15
+    # Selectors for signup/onboarding/token UI
+    email_selector: str = 'input[name="email"]'
+    password_selector: str = 'input[type="password"]'
+    signup_button_text: str = 'Sign up'
+    skip_button_texts: tuple[str, ...] = ('Skip', 'Skip for now', 'Not now')
+    ai_section_name: str = 'AI & machine learning'
+    ai_gateway_run_label: str = 'AI Gateway'
+    ai_search_run_label: str = 'AI Search'
+    workers_ai_read_label: str = 'Workers AI'
+    review_button_text: str = 'Review token'
+    create_button_text: str = 'Create Token'
+    token_display_label: str = 'Your API Token'
+    token_regex: str = r'[A-Za-z0-9_-]{40,}'
+    account_id_regex: str = r'dash\.cloudflare\.com/([0-9a-f]{32})/'
+
+
+@dataclass(frozen=True)
+class NineRouterConfig:
+    """9Router dashboard — service riêng, tao chỉ dùng (không quản lý code).
+
+    Dùng để auto-add Cloudflare account sau khi tạo: fill form Add → Check → Save.
+    """
+    dashboard_url: str = "http://localhost:20128/dashboard/providers/cloudflare-ai"
+    password: str = "@Anhtuan13"
+
+
+@dataclass(frozen=True)
 class MailConfig:
     cooldown_sec: int = 120
     max_consecutive_fails: int = 3
@@ -181,7 +217,6 @@ class MailConfig:
     max_retries: int = 3
     retry_max_delay_sec: int = 30
     mail_tm_bases: tuple[str, ...] = field(default_factory=lambda: ("https://api.mail.tm",))
-    mailslurp_base_url: str = "https://api.mailslurp.com"
     testmail_base_url: str = "https://api.testmail.app"
     mailosaur_base_url: str = "https://mailosaur.com/api"
     guerrillamail_base_url: str = "https://www.guerrillamail.com/ajax.php"
@@ -189,6 +224,37 @@ class MailConfig:
     gmail_inbox_url: str = "https://mail.google.com/mail/u/0/#inbox"
     gmail_search_url_template: str = "https://mail.google.com/mail/u/0/#search/{query}"
     sms_store_cap: int = 500
+
+    def providers_for(self, service: str = '') -> tuple[str, ...]:
+        import asyncio
+        import os
+        import concurrent.futures
+        from common.database._engine import init_async_db, get_async_session
+        from common.database._async import get_mail_providers_async
+        tag = service.strip().lower() or None
+        db_url = os.getenv("DATABASE_URL")
+        if not db_url:
+            return ()
+        
+        async def _fetch():
+            init_async_db(db_url)
+            async with get_async_session() as session:
+                return await get_mail_providers_async(session, service_tag=tag)
+        
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        
+        if loop and loop.is_running():
+            # Running in async context - run in separate thread
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                rows = pool.submit(asyncio.run, _fetch()).result()
+        else:
+            rows = asyncio.run(_fetch())
+        
+        return tuple(str(r['connection_str']) for r in rows if r.get('connection_str'))
+
 
 @dataclass(frozen=True)
 class GoogleOAuthConfig:
@@ -304,6 +370,8 @@ class ApiConfig:
         "http://localhost:1421",
         "tauri://localhost",
     ))
+    # URL cua host-browser-agent (chay tren host OS).
+    host_browser_agent_url: str = field(default_factory=lambda: os.getenv("HOST_BROWSER_AGENT_URL", ""))
 
 
 @dataclass(frozen=True)
@@ -425,6 +493,8 @@ class AppConfig:
     sentry: SentryConfig = field(default_factory=SentryConfig)
     checker: CheckerConfig = field(default_factory=CheckerConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
+    cloudflare: CloudflareConfig = field(default_factory=CloudflareConfig)
+    ninerouter: NineRouterConfig = field(default_factory=NineRouterConfig)
     proxy: ProxyConfig | None = None
     base_dir: Path = field(default_factory=lambda: Path(__file__).parent.parent.parent)
 
@@ -547,7 +617,6 @@ def _parse_mail(raw: dict, db_path: Path) -> MailConfig:
         max_retries=int(raw.get("max_retries", 3)),
         retry_max_delay_sec=int(raw.get("retry_max_delay_sec", 30)),
         mail_tm_bases=tuple(str(b) for b in raw.get("mail_tm_bases", ("https://api.mail.tm",))),
-        mailslurp_base_url=str(raw.get("mailslurp_base_url", "https://api.mailslurp.com")),
         testmail_base_url=str(raw.get("testmail_base_url", "https://api.testmail.app")),
         mailosaur_base_url=str(raw.get("mailosaur_base_url", "https://mailosaur.com/api")),
         guerrillamail_base_url=str(raw.get("guerrillamail_base_url", "https://www.guerrillamail.com/ajax.php")),
@@ -578,6 +647,7 @@ _CONFIG_FILES = (
     "testmail.yaml",
     "artificialanalysis.yaml",
     "sentry.yaml",
+    "cloudflare.yaml",
 )
 
 
@@ -611,6 +681,18 @@ def _parse_mailosaur(raw: dict | None) -> MailosaurConfig:
     if not raw:
         return MailosaurConfig()
     return _parse_section_strict(MailosaurConfig, raw, "mailosaur")
+
+
+def _parse_cloudflare(raw: dict | None) -> CloudflareConfig:
+    if not raw:
+        return CloudflareConfig()
+    return _parse_section_strict(CloudflareConfig, raw, "cloudflare")
+
+
+def _parse_ninerouter(raw: dict | None) -> NineRouterConfig:
+    if not raw:
+        return NineRouterConfig()
+    return _parse_section_strict(NineRouterConfig, raw, "ninerouter")
 
 
 def _parse_database(raw: dict | None) -> DatabaseConfig:
@@ -662,6 +744,8 @@ def load_config(path: Path | None = None) -> AppConfig:
         sentry=_parse_section_strict(SentryConfig, _require_section(raw, "sentry"), "sentry"),
         checker=_parse_checker(raw.get("checker")),
         database=_parse_database(raw.get("database")),
+        cloudflare=_parse_cloudflare(raw.get("cloudflare")),
+        ninerouter=_parse_ninerouter(raw.get("ninerouter")),
         proxy=_parse_proxy(raw.get("proxy", {})),
         base_dir=base_dir,
     )
