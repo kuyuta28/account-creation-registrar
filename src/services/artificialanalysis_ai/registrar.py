@@ -95,7 +95,7 @@ async def _navigate_magic_link(page: Page, link: str, base_url: str, timeout_ms:
 
 
 async def _create_api_key(
-    page: Page, org_slug: str, base_url: str, timeout_ms: int, key_label: str, log_fn: LogFn, debug_dir: Path,
+    page: Page, org_slug: str, base_url: str, api_key_regex: str, timeout_ms: int, key_label: str, log_fn: LogFn, debug_dir: Path,
 ) -> str:
     """Navigate to API Access page and create a new API key."""
     api_url = f"{base_url}/orgs/{org_slug}/api-access"
@@ -125,14 +125,14 @@ async def _create_api_key(
     await _dump_debug(page, "aa_after_key_submit.html", debug_dir)
 
     # Extract API key — look for aa_ pattern
-    api_key = await page.evaluate("""() => {
+    api_key = await page.evaluate(f"""() => {{
         let text = document.body.innerText || '';
-        document.querySelectorAll('input, textarea, code, pre').forEach(el => {
+        document.querySelectorAll('input, textarea, code, pre').forEach(el => {{
             text += ' ' + (el.value || el.innerText || el.textContent || '');
-        });
-        const matches = text.match(/aa_[a-zA-Z0-9_-]{10,}/g);
+        }});
+        const matches = text.match(/{api_key_regex}/g);
         return matches ? matches[0] : null;
-    }""")
+    }}""")
 
     if not api_key:
         await _dump_debug(page, "aa_key_not_found.html", debug_dir)
@@ -213,7 +213,7 @@ async def _signup_flow(
 
     log_fn("\n[5/5] Creating API key...")
     api_key = await _create_api_key(
-        page, org_slug, aa_cfg.base_url, t.page_load, cfg.register.api_key_label, log_fn, debug_dir,
+        page, org_slug, aa_cfg.base_url, aa_cfg.api_key_regex, t.page_load, cfg.register.api_key_label, log_fn, debug_dir,
     )
 
     return AccountRecord(

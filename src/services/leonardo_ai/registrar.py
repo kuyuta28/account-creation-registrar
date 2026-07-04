@@ -122,7 +122,7 @@ async def _run(page: Page, mailbox: Mailbox, email: str, password: str, cfg: App
                 msg = await wait_for_message(mailbox, from_contains=leo.verification_sender, timeout=leo.otp_wait_sec, poll_interval=leo.otp_poll_interval, log_fn=log_fn)
                 if not msg:
                     raise RuntimeError("Leonardo verification email not received within timeout")
-                code = _extract_verification_code(msg)
+                code = _extract_verification_code(msg, leo.verification_code_regex)
                 if not code:
                     raise RuntimeError("Leonardo verification email arrived but no code was found")
                 log_fn(f"  Verification code: {code}")
@@ -281,9 +281,9 @@ async def _is_code_page(page: Page, text: str) -> bool:
     return False
 
 
-def _extract_verification_code(message: dict) -> str | None:
+def _extract_verification_code(message: dict, regex: str) -> str | None:
     for source in (message.get("subject", ""), message.get("intro", ""), message.get("body", "")):
-        match = re.search(r"\b(\d{6,8})\b", source)
+        match = re.search(regex, source)
         if match:
             return match.group(1)
     return None

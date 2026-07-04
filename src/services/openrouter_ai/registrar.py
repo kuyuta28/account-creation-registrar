@@ -337,7 +337,7 @@ async def _create_api_key(page: Any, timeout_ms: int, log_fn: LogFn, debug_dir: 
                 " return parts.join('\\n');"
                 "}"
             )
-            found = re.findall(r"sk-or-[a-zA-Z0-9_\-]{20,}", text)
+            found = re.findall(or_cfg.api_key_regex, text)
             if found:
                 log_fn(f"  API key found after {(tick+1)*0.5:.1f}s: {found[0][:20]}...")
                 return found[0]

@@ -50,7 +50,7 @@ async def create_api_key(page: Page, log_fn: LogFn, cfg: AppConfig) -> str:
     await page.wait_for_timeout(t.step_delay)
     await _dump_debug(page, "apikey_after_confirm.html", cfg.debug_dir)
 
-    return await _extract_api_key(page, log_fn)
+    return await _extract_api_key(page, cfg.elevenlabs.api_key_regex, log_fn)
 
 
 # ── private helpers ───────────────────────────────────────────────────────────
@@ -171,14 +171,14 @@ async def _confirm_dialog(page: Page, log_fn: LogFn) -> None:
         log_fn("  ⚠️ Confirm button not found in dialog")
 
 
-async def _extract_api_key(page: Page, log_fn: LogFn) -> str:
-    key: str = await page.evaluate("""() => {
-        for (const el of document.querySelectorAll('input')) {
+async def _extract_api_key(page: Page, api_key_regex: str, log_fn: LogFn) -> str:
+    key: str = await page.evaluate(f"""() => {{
+        for (const el of document.querySelectorAll('input')) {{
             if (el.value && el.value.startsWith('sk_')) return el.value;
-        }
-        const m = document.body.innerText.match(/sk_[a-f0-9]{20,}/);
+        }}
+        const m = document.body.innerText.match(/{api_key_regex}/);
         return m ? m[0] : '';
-    }""") or ""
+    }}""") or ""
 
     if key:
         log_fn(f"  ✅ API key: {key[:12]}...")

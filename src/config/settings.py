@@ -91,6 +91,7 @@ class ElevenLabsConfig:
     api_user_url: str = "https://api.elevenlabs.io/v1/user"
     check_timeout_sec: int = 10
     use_google_session: bool = True
+    api_key_regex: str = r"sk_[a-f0-9]{20,}"
 
 
 @dataclass(frozen=True)
@@ -136,6 +137,7 @@ class LeonardoConfig:
     otp_poll_interval: int = 4
     post_submit_wait_ms: int = 3_000
     turnstile_timeout_sec: int = 300
+    verification_code_regex: str = r"\b(\d{6,8})\b"
 
 
 @dataclass(frozen=True)
@@ -470,6 +472,7 @@ class ArtificialAnalysisConfig:
     r2_download_timeout_sec: int = 60
     check_sessions_concurrency: int = 15
     accept_terms_concurrency: int = 20
+    api_key_regex: str = r"aa_[a-zA-Z0-9_-]{10,}"
 
 
 @dataclass(frozen=True)
@@ -521,6 +524,7 @@ class OpenRouterConfig:
     check_clean_timeout_sec: int = 20
     login_poll_interval_ms: int = 1_000
     privacy_toggle_wait_ms: int = 600
+    api_key_regex: str = r"sk-or-[a-zA-Z0-9_\-]{20,}"
 
 
 @dataclass(frozen=True)
