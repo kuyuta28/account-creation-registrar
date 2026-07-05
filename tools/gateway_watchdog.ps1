@@ -9,6 +9,7 @@ $script = Join-Path $repo 'registrar\tools\host_browser_agent.py'
 $logDir = Join-Path $repo 'registrar\logs'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $logFile = Join-Path $logDir 'gateway.log'
+$errFile = Join-Path $logDir 'gateway.err'
 
 $env:PYTHONPATH = "$repo\registrar;$repo\common"
 $env:HOST_BROWSER_AGENT_URL = 'http://127.0.0.1:9999'
@@ -22,10 +23,10 @@ while ($true) {
     $start = Get-Date
     "[$start] starting gateway..." | Out-File -FilePath $logFile -Append -Encoding utf8
     $p = Start-Process -FilePath $python -ArgumentList $script -NoNewWindow -PassThru `
-        -RedirectStandardOutput $logFile -RedirectStandardError $logFile
+        -RedirectStandardOutput $logFile -RedirectStandardError $errFile
     $p.WaitForExit()
     $exit = $p.ExitCode
     $end = Get-Date
-    "[$end] gateway exited code=$exit — restarting in 3s" | Out-File -FilePath $logFile -Append -Encoding utf8
+    "[$end] gateway exited code=$exit -- restarting in 3s" | Out-File -FilePath $logFile -Append -Encoding utf8
     Start-Sleep -Seconds 3
 }
