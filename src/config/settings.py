@@ -479,6 +479,9 @@ class ArtificialAnalysisConfig:
     image_lab_login_wait_ms: int = 3_000
     image_lab_poll_interval_ms: int = 3_000
     image_lab_generation_timeout_sec: int = 300
+    # Browser Gateway (host native camoufox) — container reach qua host.docker.internal.
+    # Env-driven: không declare trong YAML (empty string override env).
+    host_browser_agent_url: str = field(default_factory=lambda: os.getenv("HOST_BROWSER_AGENT_URL", ""))
 
 
 @dataclass(frozen=True)

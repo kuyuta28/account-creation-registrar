@@ -3,7 +3,7 @@ aa_proxy.py — Router proxy AA (Artificial Analysis) API qua session cookie.
 
 Endpoints:
   GET  /aa/session              – check session + balance từ AA
-  GET  /aa/models               – danh sách image models (local cache)
+  POST /aa/models/refresh       – scrape model list live từ AA Image Lab (Browser Gateway)
   GET  /aa/generations          – lịch sử generations của account
   POST /aa/generate             – tạo generation mới (proxy đến AA API)
   GET  /aa/generation/{gen_id}  – poll status + result
@@ -14,7 +14,6 @@ import asyncio
 import io
 import json
 import re
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -37,12 +36,6 @@ def _aa_cfg():
     """Lazily load AA config — tránh circular import."""
     from ...config.settings import load_config
     return load_config().artificialanalysis
-
-
-def _models_file() -> Path:
-    """Lấy path aa_models.json từ config — không hardcode."""
-    from ...config.settings import load_config
-    return load_config().base_dir / "data" / "aa_models.json"
 
 
 def _build_headers() -> dict:
@@ -130,13 +123,6 @@ async def _aa_post(path: str, cookies: dict, body: dict) -> Any:
     return r.json()
 
 
-def _load_models() -> dict:
-    f = _models_file()
-    if not f.exists():
-        raise AppError(ErrorCode.INTERNAL, "aa_models.json chưa được tạo — chạy scripts/aa_save_models.py", 500)
-    return json.loads(f.read_text(encoding="utf-8"))
-
-
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
 class GenerateBody(BaseModel):
@@ -181,18 +167,44 @@ async def get_aa_session(email: str):
     })
 
 
-@router.get("/models")
-async def get_aa_models(mode: str | None = "text_to_image"):
-    """Danh sách image models từ local cache.
-    mode: text_to_image | image_editing | all
+class RefreshModelsBody(BaseModel):
+    email: str = Field(..., description="AA account có session valid để scrape model list")
+    mode: str = Field(default="all", description="text_to_image | image_editing | all")
+
+
+@router.post("/models/refresh")
+async def refresh_aa_models(body: RefreshModelsBody):
+    """Scrape model list live từ AA Image Lab qua Browser Gateway (host camoufox).
+
+    Bỏ cache file — mỗi lần gọi = 1 browser session scrape RSC flight tươi.
+    Cần 1 AA account có session valid (truyền qua email).
     """
-    data = _load_models()
-    if mode not in ("text_to_image", "image_editing", "all"):
+    from common.browser_gateway_client import BrowserGatewayError, run_browser_task
+
+    cfg = _aa_cfg()
+    if not cfg.host_browser_agent_url:
+        raise AppError(
+            ErrorCode.INTERNAL,
+            "HOST_BROWSER_AGENT_URL chưa cấu hình — cần gateway host để scrape model list",
+            500,
+        )
+    if body.mode not in ("text_to_image", "image_editing", "all"):
         raise AppError(ErrorCode.VALIDATION, "mode phải là: text_to_image | image_editing | all", 400)
-    result = data.get(mode)
-    if result is None:
-        raise AppError(ErrorCode.NOT_FOUND, f"Không có dữ liệu models cho mode '{mode}'", 404)
-    return ok(result)
+
+    try:
+        result = await run_browser_task(
+            cfg.host_browser_agent_url,
+            "refresh_aa_models",
+            args={"email": body.email},
+        )
+    except BrowserGatewayError as exc:
+        raise AppError(ErrorCode.INTERNAL, f"Refresh models thất bại: {exc}", 502) from exc
+
+    by_mode = result.get("by_mode", {})
+    data = by_mode.get(body.mode)
+    if data is None:
+        raise AppError(ErrorCode.NOT_FOUND, f"Không có models cho mode '{body.mode}'", 404)
+    return ok(data)
 
 
 @router.get("/generations")
