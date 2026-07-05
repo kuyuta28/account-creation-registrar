@@ -16,3 +16,7 @@ artificialanalysis:
   r2_download_timeout_sec: 60
   check_sessions_concurrency: 15
   accept_terms_concurrency: 20
+  # Image Lab macro timing
+  image_lab_login_wait_ms: 3000
+  image_lab_poll_interval_ms: 3000
+  image_lab_generation_timeout_sec: 300

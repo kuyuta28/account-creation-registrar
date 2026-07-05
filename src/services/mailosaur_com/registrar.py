@@ -106,6 +106,7 @@ async def _fill_otp(page: Page, otp: str) -> None:
 
 async def _fill_onboard(page: Page, first: str, last: str, password: str) -> None:
     """Fill onboard form: name + password + reject marketing + submit."""
+    msr = _mailosaur_cfg()
     full_name = f"{first} {last}"
     await page.locator("input[name=name]").fill(full_name)
     await page.wait_for_timeout(300)
@@ -113,35 +114,38 @@ async def _fill_onboard(page: Page, first: str, last: str, password: str) -> Non
     await page.wait_for_timeout(300)
     await page.locator('[data-testid="reject-marketing"]').click()
     await page.wait_for_timeout(300)
-    await page.locator("button[type=submit]").click(timeout=10000)
+    await page.locator("button[type=submit]").click(timeout=msr.click_timeout_ms)
 
 
 async def _pick_use_case(page: Page) -> None:
     """Chọn automatingTests + submit."""
+    msr = _mailosaur_cfg()
     await page.locator('[data-testid="option-automatingTests"]').click()
     await page.wait_for_timeout(300)
-    await page.locator("button[type=submit]").click(timeout=10000)
+    await page.locator("button[type=submit]").click(timeout=msr.click_timeout_ms)
 
 
 async def _pick_framework(page: Page) -> None:
     """Chọn playwright label + submit."""
+    msr = _mailosaur_cfg()
     lbl = page.locator('label[for="playwright"]')
     if await lbl.count() > 0:
         await lbl.click()
     else:
         await page.evaluate("document.getElementById('playwright').click()")
     await page.wait_for_timeout(300)
-    await page.locator("button[type=submit]").click(timeout=10000)
+    await page.locator("button[type=submit]").click(timeout=msr.click_timeout_ms)
 
 
 async def _setup_first_inbox(page: Page) -> None:
     """Chọn email type, đặt tên inbox, click setup."""
+    msr = _mailosaur_cfg()
     await page.locator('[data-testid="option-email"]').click()
     await page.wait_for_timeout(500)
     await page.locator('[data-testid="inbox-name-input"]').fill("My Inbox")
     await page.wait_for_timeout(500)
-    await page.locator('[data-testid="setup-inbox"]').click(timeout=10000)
-    await page.wait_for_url(lambda url: "first-inbox" not in url, timeout=25000, wait_until="commit")
+    await page.locator('[data-testid="setup-inbox"]').click(timeout=msr.click_timeout_ms)
+    await page.wait_for_url(lambda url: "first-inbox" not in url, timeout=msr.wait_url_timeout_ms, wait_until="commit")
 
 
 async def _extract_api_key(page: Page, msr_cfg, debug_dir, log_fn: LogFn) -> str:
@@ -155,7 +159,7 @@ async def _extract_api_key(page: Page, msr_cfg, debug_dir, log_fn: LogFn) -> str
 
     # Click "Create standard key"
     log_fn("  Clicking 'Create standard key'...")
-    await page.locator("button:has-text('Create standard key')").click(timeout=10000)
+    await page.locator("button:has-text('Create standard key')").click(timeout=msr_cfg.click_timeout_ms)
     await page.wait_for_timeout(2000)
     await _dump_debug(page, "msr_10_create_key_dialog.html", debug_dir)
 
@@ -176,7 +180,7 @@ async def _extract_api_key(page: Page, msr_cfg, debug_dir, log_fn: LogFn) -> str
         confirm_btn = page.locator(f"button:has-text('{confirm_text}')").last
         if await confirm_btn.count() > 0:
             log_fn(f"  Confirming with '{confirm_text}'...")
-            await confirm_btn.click(timeout=10000)
+            await confirm_btn.click(timeout=msr_cfg.click_timeout_ms)
             await page.wait_for_timeout(3000)
             break
 
@@ -231,7 +235,7 @@ async def _signup_flow(
     otp_timeout = cfg.testmail.otp_wait_sec  # reuse testmail config (same timeout)
 
     log_fn(f"\n[1/9] Mở {_signup_url(cfg)}...")
-    await page.goto(_signup_url(cfg), wait_until="domcontentloaded", timeout=30000)
+    await page.goto(_signup_url(cfg), wait_until="domcontentloaded", timeout=cfg.mailosaur.keys_page_timeout_ms)
     await page.wait_for_timeout(3000)
     await _dump_debug(page, "msr_01_signup.html", debug_dir)
 

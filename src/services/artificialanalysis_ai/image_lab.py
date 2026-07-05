@@ -45,10 +45,10 @@ class GenerationFailedError(RuntimeError):
 
 # ── Step helpers ─────────────────────────────────────────────────────────────
 
-async def _verify_logged_in(page, image_lab_url: str, log_fn: LogFn) -> None:
+async def _verify_logged_in(page, image_lab_url: str, login_wait_ms: int, log_fn: LogFn) -> None:
     """Raise SessionExpiredError nếu bị redirect về login."""
     await page.goto(image_lab_url, wait_until="domcontentloaded")
-    await page.wait_for_timeout(3000)
+    await page.wait_for_timeout(login_wait_ms)
     if "/login" in page.url:
         raise SessionExpiredError("Session expired — redirect về login")
     log_fn(f"  Logged in: {page.url}")
@@ -164,7 +164,7 @@ async def _count_existing_downloads(page) -> int:
     }""")
 
 
-async def _wait_for_new_images(page, initial_count: int, model_count: int, timeout_sec: int, log_fn: LogFn) -> None:
+async def _wait_for_new_images(page, initial_count: int, model_count: int, timeout_sec: int, poll_interval_ms: int, log_fn: LogFn) -> None:
     """
     Chờ cho đến khi số download buttons tăng thêm ít nhất model_count so với initial_count.
     """
@@ -178,7 +178,7 @@ async def _wait_for_new_images(page, initial_count: int, model_count: int, timeo
             log_fn(f"  ✅ {new_count} image(s) generated")
             return
         log_fn(f"  ... {new_count}/{model_count} ready")
-        await page.wait_for_timeout(3000)
+        await page.wait_for_timeout(poll_interval_ms)
 
     raise GenerationFailedError(f"Timeout {timeout_sec}s — ảnh không xuất hiện")
 
@@ -225,6 +225,8 @@ async def run_image_lab(
     output_dir: Path,
     image_lab_url: str,
     log_fn: LogFn,
+    login_wait_ms: int = 3_000,
+    poll_interval_ms: int = 3_000,
     generation_timeout_sec: int = 300,
 ) -> list[Path]:
     """
@@ -235,7 +237,7 @@ async def run_image_lab(
     page = await context.new_page()
     try:
         log_fn("[1] Verify session...")
-        await _verify_logged_in(page, image_lab_url, log_fn)
+        await _verify_logged_in(page, image_lab_url, login_wait_ms, log_fn)
 
         log_fn("[2] Select models...")
         await _select_models(page, params.models, log_fn)
@@ -258,7 +260,7 @@ async def run_image_lab(
 
         log_fn("[7] Waiting for images...")
         expected = len(params.models) * params.generations
-        await _wait_for_new_images(page, initial_count, expected, generation_timeout_sec, log_fn)
+        await _wait_for_new_images(page, initial_count, expected, generation_timeout_sec, poll_interval_ms, log_fn)
 
         log_fn("[8] Downloading images...")
         paths = await _download_new_images(page, initial_count, output_dir, log_fn)

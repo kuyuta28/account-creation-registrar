@@ -67,6 +67,9 @@ async def _run_one_account(
             output_dir=output_dir,
             image_lab_url=cfg.artificialanalysis.image_lab_url,
             log_fn=_log,
+            login_wait_ms=cfg.artificialanalysis.image_lab_login_wait_ms,
+            poll_interval_ms=cfg.artificialanalysis.image_lab_poll_interval_ms,
+            generation_timeout_sec=cfg.artificialanalysis.image_lab_generation_timeout_sec,
         )
         await save_session(email, context)
         _log(f"✅ Done — {len(paths)} image(s)")

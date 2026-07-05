@@ -1,25 +1,25 @@
 cloudflare:
-  signup_url: "https://dash.cloudflare.com/sign-up"
-  login_url: "https://dash.cloudflare.com/login"
-  token_create_url_template: "https://dash.cloudflare.com/{account_id}/api-tokens/create"
-  app_url_contains: "dash.cloudflare.com"
+  signup_url: https://dash.cloudflare.com/sign-up
+  login_url: https://dash.cloudflare.com/login
+  token_create_url_template: https://dash.cloudflare.com/{account_id}/api-tokens/create
+  app_url_contains: dash.cloudflare.com
   verification_wait_sec: 180
-  onboarding_skip_wait_ms: 2000
-  post_submit_wait_ms: 3000
+  onboarding_skip_wait_ms: 5000
+  post_submit_wait_ms: 5000
   check_timeout_sec: 15
-  email_selector: 'input[name="email"]'
-  password_selector: 'input[type="password"]'
-  signup_button_text: "Sign up"
+  email_selector: input[name="email"]
+  password_selector: input[type="password"]
+  signup_button_text: Sign up
   skip_button_texts:
-    - "Skip"
-    - "Skip for now"
-    - "Not now"
-  ai_section_name: "AI & machine learning"
-  ai_gateway_run_label: "AI Gateway"
-  ai_search_run_label: "AI Search"
-  workers_ai_read_label: "Workers AI"
-  review_button_text: "Review token"
-  create_button_text: "Create token"
-  token_display_label: "Your API Token"
-  token_regex: '[A-Za-z0-9_-]{40,}'
-  account_id_regex: 'dash\.cloudflare\.com/([0-9a-f]{32})/'
+    - Skip
+    - Skip for now
+    - Not now
+  ai_section_name: AI & machine learning
+  ai_gateway_run_label: AI Gateway
+  ai_search_run_label: AI Search
+  workers_ai_read_label: Workers AI
+  review_button_text: Review token
+  create_button_text: Create token
+  token_display_label: Your API Token
+  token_regex: "[A-Za-z0-9_-]{40,}"
+  account_id_regex: dash\.cloudflare\.com/([0-9a-f]{32})/

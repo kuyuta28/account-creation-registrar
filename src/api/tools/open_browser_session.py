@@ -48,9 +48,16 @@ def _load_cfg():
 def _get_log_dir() -> Path:
     return _load_cfg().log_dir
 
+
+def _resolve_default_url(cfg, service: str) -> str:
+    """Default URL per service — đọc từ config, không hardcode."""
+    svc = service.upper()
+    if svc == "GMAIL":
+        return cfg.mail.gmail_base_url
+    return cfg.artificialanalysis.image_lab_url
+
 _DEFAULT_URLS: dict[str, str] = {
-    "GMAIL": "https://mail.google.com",
-    "_DEFAULT": "https://artificialanalysis.ai/image/image-lab",
+    # GMAIL + _DEFAULT resolve từ cfg tại thời điểm dùng (xem _resolve_default_url).
 }
 
 _PREFS = {
@@ -147,7 +154,7 @@ async def main() -> None:
 
     service = sys.argv[1]
     email = sys.argv[2]
-    default_url = _DEFAULT_URLS.get(service.upper(), _DEFAULT_URLS["_DEFAULT"])
+    default_url = _resolve_default_url(cfg, service)
     url = sys.argv[3] if len(sys.argv) > 3 else default_url
     log.info("Target: service=%s email=%s url=%s", service, email, url)
 

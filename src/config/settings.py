@@ -160,6 +160,8 @@ class MailosaurConfig:
     signup_url: str = "https://mailosaur.com/app/signup"
     keys_url: str = "https://mailosaur.com/app/keys"
     keys_page_timeout_ms: int = 30_000
+    click_timeout_ms: int = 10_000
+    wait_url_timeout_ms: int = 25_000
 
 
 @dataclass(frozen=True)
@@ -473,6 +475,10 @@ class ArtificialAnalysisConfig:
     check_sessions_concurrency: int = 15
     accept_terms_concurrency: int = 20
     api_key_regex: str = r"aa_[a-zA-Z0-9_-]{10,}"
+    # Image Lab macro timing
+    image_lab_login_wait_ms: int = 3_000
+    image_lab_poll_interval_ms: int = 3_000
+    image_lab_generation_timeout_sec: int = 300
 
 
 @dataclass(frozen=True)
@@ -720,6 +726,7 @@ def _parse_gmail_variations(raw: dict) -> GmailVariationsConfig:
 _CONFIG_DIR_NAME = "config"
 _CONFIG_FILES = (
     "config.yaml",
+    "platform.yaml",
     "logging.yaml",
     "mail.yaml",
     "captcha.yaml",
