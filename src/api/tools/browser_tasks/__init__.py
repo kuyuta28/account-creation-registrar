@@ -16,5 +16,6 @@ from . import login_gmail  # noqa: F401,E402
 from . import relogin_aa  # noqa: F401,E402
 from . import register_cloudflare  # noqa: F401,E402
 from . import add_cf_to_9router  # noqa: F401,E402
+from . import refresh_aa_models  # noqa: F401,E402
 
 __all__ = ["register", "get_task", "list_tasks"]
