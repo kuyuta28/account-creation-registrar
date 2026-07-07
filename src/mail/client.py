@@ -14,7 +14,6 @@ Public API:
 from __future__ import annotations
 
 import asyncio
-import itertools
 import re
 import time
 from collections.abc import Sequence
@@ -77,8 +76,6 @@ def _mark_provider_ok(provider: str) -> None:
 
 # ── Provider routing ──────────────────────────────────────────────────────────
 
-_round_robin_counter = itertools.count()
-
 
 def _normalize_providers(providers: Sequence[str] | None) -> tuple[str, ...]:
     source = get_mail_tm_bases() if providers is None else providers
@@ -89,19 +86,31 @@ def _normalize_providers(providers: Sequence[str] | None) -> tuple[str, ...]:
     return unique
 
 
-def _rotated_providers(providers: Sequence[str] | None) -> tuple[str, ...]:
-    """Round-robin: mỗi lần gọi bắt đầu từ provider kế tiếp, đảm bảo phân tán."""
-    items = list(_normalize_providers(providers))
-    if len(items) <= 1:
-        return tuple(items)
-    idx = next(_round_robin_counter) % len(items)
-    return tuple(items[idx:] + items[:idx])
+async def _pick_testmail_via_db(
+    service_tag: str | None, monthly_quota: int, log_fn: LogFn | None,
+) -> Mailbox | None:
+    """DB counting pick: namespace testmail ít dùng nhất trong tháng, race-safe.
+
+    Trả về Mailbox (có provider_id) hoặc None nếu pool cạn. KHÔNG fallback —
+    pool cạn = raise ở caller, để service biết refill namespace mới.
+    """
+    from common.database._engine import get_async_session
+    from common.database._providers_async import pick_testmail_namespace_async
+    async with get_async_session() as session:
+        row = await pick_testmail_namespace_async(session, service_tag, monthly_quota)
+    if row is None:
+        return None
+    return await _create_mailbox_on_provider(
+        row["connection_str"], log_fn=log_fn, provider_id=row["id"],
+    )
 
 
-async def _create_mailbox_on_provider(provider: str, log_fn: LogFn | None = None) -> Mailbox:
+async def _create_mailbox_on_provider(
+    provider: str, log_fn: LogFn | None = None, provider_id: int = 0,
+) -> Mailbox:
     match provider_kind(provider):
         case "testmail.app":
-            return await testmail_app.create_mailbox(provider)
+            return await testmail_app.create_mailbox(provider, provider_id=provider_id)
         case "guerrillamail.com":
             return await guerrillamail_com.create_mailbox(provider, log_fn=log_fn)
         case "mailosaur.com":
@@ -138,13 +147,31 @@ async def create_mailbox(
     providers: Sequence[str] | None = None,
     cfg: MailCfg = MailCfg(),
     log_fn: LogFn | None = None,
+    service_tag: str | None = None,
 ) -> Mailbox:
-    _log = log_fn or _tprint
-    errors: list[str] = []
-    all_providers = _rotated_providers(providers)
-    if not all_providers:
-        raise RuntimeError("No usable temp mail providers configured")
+    """Tạo mailbox. Testmail = DB counting pick (source of truth quota 100/tháng),
+    các provider khác = list providers tuần tự + circuit breaker in-memory.
 
+    service_tag: filter namespace theo tag (None = toàn bộ pool). Counting luôn chạy
+    khi có testmail + quota > 0. Pool cạn → raise, KHÔNG fallback.
+    """
+    _log = log_fn or _tprint
+    all_providers = _normalize_providers(providers)
+    has_testmail = any(provider_kind(p) == "testmail.app" for p in all_providers)
+
+    # Testmail: DB counting pick (source of truth — mọi tiêu hao đều qua đây)
+    if has_testmail and cfg.testmail_monthly_quota > 0:
+        box = await _pick_testmail_via_db(service_tag, cfg.testmail_monthly_quota, _log)
+        if box is not None:
+            _log(f"Temp mail (testmail.app:{box.token}): {box.email}")
+            return box
+        raise RuntimeError(
+            f"testmail namespace pool cạn tháng này (tất cả ≥ quota "
+            f"{cfg.testmail_monthly_quota} hoặc cooldown) — cần reg namespace mới"
+        )
+
+    # Các provider khác (mail.tm/guerrillamail/mailosaur/gmail/sms): tuần tự + breaker
+    errors: list[str] = []
     alive = [p for p in all_providers if not _is_provider_down(p)]
     down  = [p for p in all_providers if _is_provider_down(p)]
 
@@ -166,16 +193,16 @@ async def create_mailbox(
         earliest_deadline = min(_provider_cooldown_until[p] for p in down if p in _provider_cooldown_until)
         wait = max(1, earliest_deadline - time.monotonic())
         await asyncio.sleep(wait)
-        return await create_mailbox(providers, cfg, log_fn=log_fn)
+        return await create_mailbox(providers, cfg, log_fn=log_fn, service_tag=service_tag)
 
     if any(not _is_provider_down(p) for p in all_providers):
-        return await create_mailbox(providers, cfg, log_fn=log_fn)
+        return await create_mailbox(providers, cfg, log_fn=log_fn, service_tag=service_tag)
 
     if _provider_cooldown_until:
         earliest_deadline = min(_provider_cooldown_until.values())
         wait = max(1, earliest_deadline - time.monotonic())
         await asyncio.sleep(wait)
-        return await create_mailbox(providers, cfg, log_fn=log_fn)
+        return await create_mailbox(providers, cfg, log_fn=log_fn, service_tag=service_tag)
 
     raise RuntimeError("All temp mail providers failed: " + " | ".join(errors))
 

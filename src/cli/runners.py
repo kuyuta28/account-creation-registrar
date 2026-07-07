@@ -169,16 +169,6 @@ def run_leonardo(count: int = 1) -> None:
     asyncio.run(_run_fp_sequential(count, "Leonardo AI Account Creator", "LEONARDO", _print))
 
 
-def run_proton(count: int = 1) -> None:
-    def _print(record, ok: int, total: int) -> None:
-        print(f"\n{_SEP}\nDONE [{ok}/{total}]\n{_SEP}")
-        print(f"  Email:    {record.email}")
-        print(f"  Password: {record.password}")
-        print(_SEP)
-
-    asyncio.run(_run_fp_sequential(count, "Proton Mail Account Creator", "PROTON", _print))
-
-
 def run_openrouter(count: int = 1, workers: int = 1) -> None:
     def _print(record, ok: int, total: int) -> None:
         print(f"\n{_SEP}\nDONE [{ok}/{total}]\n{_SEP}")

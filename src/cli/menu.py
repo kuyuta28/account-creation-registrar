@@ -15,9 +15,8 @@ _SEP = "=" * 60
 # ── menu registry ─────────────────────────────────────────────────────────────
 
 _MENU_LABELS = {
-    "1": "Proton Mail",
-    "2": "ElevenLabs + API key",
-    "3": "Leonardo AI",
+    "1": "ElevenLabs + API key",
+    "2": "Leonardo AI",
 }
 
 
@@ -93,6 +92,6 @@ def main() -> None:
     total = _ask_count()
     print(f"\n{_SEP}\n  {label.upper()}  \u00d7{total}\n{_SEP}")
 
-    from .runners import run_proton, run_elevenlabs, run_leonardo
-    _runners = {"1": run_proton, "2": run_elevenlabs, "3": run_leonardo}
+    from .runners import run_elevenlabs, run_leonardo
+    _runners = {"1": run_elevenlabs, "2": run_leonardo}
     _runners[choice](total)

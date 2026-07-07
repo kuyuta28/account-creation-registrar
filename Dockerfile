@@ -7,8 +7,7 @@ FROM python:3.12-slim@sha256:090ba77e2958f6af52a5341f788b50b032dd4ca28377d2893dc
 ENV PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    XDG_CACHE_HOME=/app/.cache \
-    PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright
+    XDG_CACHE_HOME=/app/.cache
 
 WORKDIR /build
 RUN apt-get update \
@@ -25,13 +24,9 @@ COPY registrar/main.py ./main.py
 COPY registrar/run_api.py ./run_api.py
 RUN pip install --no-cache-dir .
 
-RUN playwright install chromium
-
-ARG CAMOUFOX_CACHE_PATH=""
-RUN if [ -n "$CAMOUFOX_CACHE_PATH" ] && [ -d "$CAMOUFOX_CACHE_PATH" ]; then \
-      mkdir -p /app/.cache/camoufox \
-      && cp -r "$CAMOUFOX_CACHE_PATH"/* /app/.cache/camoufox/ ; \
-    fi
+# ponytail: container không mở browser trực tiếp — toàn bộ browser automation chạy
+# trên host qua Browser Gateway. Không cần camoufox binary hay playwright chromium
+# trong image. playwright package chỉ giữ cho type hints (Page, Locator).
 
 # --- runtime ---------------------------------------------------------------
 FROM python:3.12-slim@sha256:090ba77e2958f6af52a5341f788b50b032dd4ca28377d2893dcf1ecbdfdfe203 AS runtime
@@ -39,7 +34,6 @@ FROM python:3.12-slim@sha256:090ba77e2958f6af52a5341f788b50b032dd4ca28377d2893dc
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     XDG_CACHE_HOME=/app/.cache \
-    PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright \
     REGISTRAR_HOST=0.0.0.0 \
     REGISTRAR_PORT=8709 \
     PYTHONPATH=/app/common/src:/app/src
@@ -53,11 +47,9 @@ WORKDIR /app
 
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
-COPY --from=builder --chown=app:app /app/.cache /app/.cache
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends wget curl ca-certificates \
- && python -m playwright install-deps chromium \
  && rm -rf /var/lib/apt/lists/* /tmp/*
 
 COPY --chown=app:app common/src ./common/src

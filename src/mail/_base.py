@@ -77,6 +77,7 @@ class MailCfg:
     """Immutable mail config — truyền vào create_mailbox() thay vì dùng global setter."""
     cooldown_sec: int = _DEFAULT_COOLDOWN_SEC
     max_consecutive_fails: int = _DEFAULT_MAX_CONSECUTIVE_FAILS
+    testmail_monthly_quota: int = 100
 
 
 @dataclass(frozen=True)
@@ -91,6 +92,7 @@ class Mailbox:
     password: str = ""       # dùng cho Google OAuth popup login
     totp_secret: str = ""    # dùng cho Google 2FA
     phone: str = ""          # số điện thoại SIM gắn với account (dùng cho Google phone challenge)
+    provider_id: int = 0     # mail_providers.id (testmail counting: bump usage khi nhận email)
 
 
 # ── Pure utils ────────────────────────────────────────────────────────────────

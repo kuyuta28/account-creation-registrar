@@ -587,9 +587,10 @@ async def _fix_privacy_one(page: Any, email: str, password: str, debug_dir: Path
 
 
 async def _run_fix_or_privacy(accounts: list[dict[str, Any]]) -> None:
-    from common.browser import open_browser
+    from common.browser_gateway_client import BrowserGatewayError, run_browser_task
 
     cfg = load_config()
+    gateway_url = cfg.api.host_browser_agent_url
     sem = asyncio.Semaphore(cfg.checker.fix_privacy_concurrency)
 
     async def _process(acc: dict) -> None:
@@ -600,18 +601,24 @@ async def _run_fix_or_privacy(accounts: list[dict[str, Any]]) -> None:
                 _fix_privacy_batch["skipped"] += 1
                 _fix_privacy_batch["processed"] += 1
             return
+        if not gateway_url:
+            async with _fix_privacy_lock:
+                _fix_privacy_batch["processed"] += 1
+                _fix_privacy_batch["failed"] += 1
+            return
         async with sem:
             try:
-                async with open_browser(cfg) as browser:
-                    page = await browser.new_page()
-                    result = await _fix_privacy_one(page, email, password, cfg.base_dir / "debug")
+                result = await run_browser_task(
+                    gateway_url, "fix_or_privacy",
+                    args={"email": email, "password": password},
+                )
                 async with _fix_privacy_lock:
                     _fix_privacy_batch["processed"] += 1
-                    if result["status"] == "ok":
+                    if result.get("status") == "ok":
                         _fix_privacy_batch["ok"] += 1
                     else:
                         _fix_privacy_batch["failed"] += 1
-            except Exception:  # noqa: BLE001 - batch collector: per-item isolation
+            except BrowserGatewayError:  # noqa: BLE001 - batch collector: per-item isolation
                 async with _fix_privacy_lock:
                     _fix_privacy_batch["processed"] += 1
                     _fix_privacy_batch["failed"] += 1
@@ -648,9 +655,13 @@ async def get_fix_or_privacy_status() -> dict[str, Any]:
 async def refresh_kling_session(email: str) -> dict[str, Any]:
     """Load session_state của account KLING, visit app.klingai.com để refresh cookies, lưu lại."""
     import json
-    from common.browser import open_browser
+    from common.browser_gateway_client import BrowserGatewayError, run_browser_task
 
     cfg = load_config()
+    gateway_url = cfg.api.host_browser_agent_url
+    if not gateway_url:
+        return {"error": "HOST_BROWSER_AGENT_URL chưa cấu hình — chạy Browser Gateway trên host"}
+
     async with get_async_session() as session:
         acc = await get_account_by_email_async(session, "KLING", email)
     if not acc:
@@ -668,16 +679,15 @@ async def refresh_kling_session(email: str) -> dict[str, Any]:
 
     before = _get_expiries(storage_state)
 
-    async with open_browser(cfg) as browser:
-        ctx = await browser.new_context(storage_state=storage_state)
-        page = await ctx.new_page()
-        await page.goto(cfg.klingai.refresh_start_url, wait_until="commit", timeout=cfg.klingai.refresh_start_timeout_ms)
-        await page.wait_for_timeout(cfg.klingai.refresh_start_wait_ms)
-        await page.goto(cfg.klingai.refresh_target_url, wait_until="commit", timeout=cfg.klingai.refresh_target_timeout_ms)
-        await page.wait_for_timeout(cfg.klingai.refresh_target_wait_ms)
-        new_state = await ctx.storage_state()
-        await ctx.close()
+    try:
+        result = await run_browser_task(
+            gateway_url, "refresh_kling_session",
+            args={"email": email},
+        )
+    except BrowserGatewayError as e:
+        return {"error": f"gateway refresh Kling thất bại: {e}"}
 
+    new_state = result["state"]
     after = _get_expiries(new_state)
     diff = {k: round((after.get(k, 0) - before.get(k, 0)) / 86400, 1) for k in KEYS if k in before and k in after}
     sliding = any(v > 0.1 for v in diff.values())

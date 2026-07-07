@@ -16,6 +16,8 @@ from ...mail.client import (
     get_message_body,
     get_messages,
 )
+from ...mail._base import MailCfg
+from ...config.settings import load_config
 from common.database._async import get_provider_connection_strs_async
 
 # ── In-memory store ───────────────────────────────────────────────────
@@ -116,6 +118,8 @@ async def create_new_mailbox(provider: str | None = None) -> dict[str, Any]:
         if not providers:
             raise RuntimeError("No mail.tm providers configured in DB")
     elif provider == "testmail.app":
+        # Testmail = DB counting pick (source of truth cho quota 100/tháng).
+        # service_tag=None: pool toàn bộ namespace testmail, không filter tag.
         providers = [p for p in all_p if p.startswith("testmail.app:")]
         if not providers:
             raise RuntimeError("No testmail.app accounts configured in DB")
@@ -130,7 +134,15 @@ async def create_new_mailbox(provider: str | None = None) -> dict[str, Any]:
     else:
         providers = list(all_p) if all_p else None
 
-    box = await create_mailbox(providers)
+    # Testmail → DB counting pick (service_tag=None, source of truth quota).
+    # Các provider khác tuần tự + circuit breaker.
+    cfg = load_config()
+    mail_cfg = MailCfg(
+        cooldown_sec=cfg.mail.cooldown_sec,
+        max_consecutive_fails=cfg.mail.max_consecutive_fails,
+        testmail_monthly_quota=cfg.mail.testmail_monthly_quota,
+    )
+    box = await create_mailbox(providers, cfg=mail_cfg)
     _active_boxes[box.email] = box
     _created_at[box.email] = time.time()
     return {
