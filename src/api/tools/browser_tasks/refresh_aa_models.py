@@ -64,7 +64,12 @@ async def refresh_aa_models(
         page = await ctx.new_page()
         log(f"[1/3] Opening {aa_cfg.image_lab_url}...")
         await page.goto(aa_cfg.image_lab_url, wait_until="domcontentloaded", timeout=cfg.timeouts.page_load * 2)
-        await page.wait_for_timeout(aa_cfg.image_lab_login_wait_ms)
+        # Đợi Next.js RSC flight payload hydrate (thay sleep cứng) — return ngay khi script __next_f có.
+        await page.wait_for_function(
+            "() => Array.from(document.querySelectorAll('script'))"
+            ".some(s => (s.textContent||'').includes('__next_f'))",
+            timeout=10_000,
+        )
         if "/login" in page.url:
             raise RuntimeError(f"Session {email} expired — redirect về login")
 

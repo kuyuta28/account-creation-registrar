@@ -64,14 +64,14 @@ class TestMailConfigRealDB:
         assert "https://api.mail.tm" in providers
 
     def test_upserted_provider_visible_in_all_providers(self, db, mail):
-        upsert_mail_provider(db, "mailslurp_legacy.local", api_key="sk_integ_a")
-        assert "mailslurp_legacy.local:sk_integ_a" in mail.providers_for()
+        upsert_mail_provider(db, "mailosaur.com", api_key="sk_integ_a")
+        assert "mailosaur.com:sk_integ_a" in mail.providers_for()
 
     def test_new_domain_not_visible_for_service(self, db, mail):
-        upsert_mail_provider(db, "mailslurp_legacy.local", api_key="sk_integ_b")
+        upsert_mail_provider(db, "mailosaur.com", api_key="sk_integ_b")
         # Domain mới không có tags → không visible cho service cụ thể
         providers = mail.providers_for("chatgpt")
-        assert "mailslurp_legacy.local:sk_integ_b" not in providers
+        assert "mailosaur.com:sk_integ_b" not in providers
 
     def test_tagged_domain_visible_for_that_service(self, db, mail):
         upsert_mail_provider(db, "testmail.app", api_key="uuid-integ", server_id="ns_integ")
@@ -84,7 +84,7 @@ class TestMailConfigRealDB:
         assert "testmail.app:ns_x:uuid-x" not in mail.providers_for("openrouter")
 
     def test_providers_for_case_insensitive(self, db, mail):
-        upsert_mail_provider(db, "mailslurp_legacy.local", api_key="sk_case")
+        upsert_mail_provider(db, "mailosaur.com", api_key="sk_case")
         lower = mail.providers_for("chatgpt")
         upper = mail.providers_for("CHATGPT")
         assert set(lower) == set(upper)
@@ -93,30 +93,30 @@ class TestMailConfigRealDB:
         from sqlalchemy import update as sa_update
         from sqlalchemy.orm import Session
 
-        upsert_mail_provider(db, "mailslurp_legacy.local", api_key="sk_disable_integ")
+        upsert_mail_provider(db, "mailosaur.com", api_key="sk_disable_integ")
         with Session(_get_engine(db)) as s:
             s.execute(
                 sa_update(_MailProvider)
                 .where(
-                    _MailProvider.provider_type == "mailslurp_legacy.local",
+                    _MailProvider.provider_type == "mailosaur.com",
                     _MailProvider.api_key == "sk_disable_integ",
                 )
                 .values(disabled=True)
             )
             s.commit()
-        assert "mailslurp_legacy.local:sk_disable_integ" not in mail.providers_for()
+        assert "mailosaur.com:sk_disable_integ" not in mail.providers_for()
 
     def test_multiple_providers_all_returned(self, db, mail):
         for i in range(5):
-            upsert_mail_provider(db, "mailslurp_legacy.local", api_key=f"sk_m{i}")
+            upsert_mail_provider(db, "mailosaur.com", api_key=f"sk_m{i}")
         providers = mail.providers_for()
         for i in range(5):
-            assert f"mailslurp_legacy.local:sk_m{i}" in providers
+            assert f"mailosaur.com:sk_m{i}" in providers
 
     def test_upsert_idempotent_no_duplicate(self, db, mail):
         for _ in range(5):
-            upsert_mail_provider(db, "mailslurp_legacy.local", api_key="sk_dup_integ")
-        matching = [p for p in mail.providers_for() if p == "mailslurp_legacy.local:sk_dup_integ"]
+            upsert_mail_provider(db, "mailosaur.com", api_key="sk_dup_integ")
+        matching = [p for p in mail.providers_for() if p == "mailosaur.com:sk_dup_integ"]
         assert len(matching) == 1
 
     def test_missing_db_returns_empty(self, tmp_path):
@@ -133,11 +133,11 @@ class TestTagSemantics:
     """Per-domain tags — kiểm tra từng trường hợp."""
 
     def test_new_domain_no_auto_tags(self, db):
-        upsert_mail_provider(db, "mailslurp_legacy.local", api_key="sk_universal")
+        upsert_mail_provider(db, "mailosaur.com", api_key="sk_universal")
         # Domain mới không tự động có tags — không visible cho bất kỳ service
         for svc in get_distinct_services(db):
             rows = get_mail_providers(db, service_tag=svc)
-            assert not any(r["connection_str"] == "mailslurp_legacy.local:sk_universal" for r in rows), (
+            assert not any(r["connection_str"] == "mailosaur.com:sk_universal" for r in rows), (
                 f"Domain mới KHÔNG được tự động có tags, but found for: {svc}"
             )
 
@@ -154,24 +154,24 @@ class TestTagSemantics:
         )
 
     def test_set_domain_tags_affects_all_providers(self, db):
-        upsert_mail_provider(db, "mailslurp_legacy.local", api_key="sk_multi_a")
-        upsert_mail_provider(db, "mailslurp_legacy.local", api_key="sk_multi_b")
-        set_provider_domain_tags(db, "mailslurp_legacy.local", ["chatgpt", "elevenlabs"])
+        upsert_mail_provider(db, "mailosaur.com", api_key="sk_multi_a")
+        upsert_mail_provider(db, "mailosaur.com", api_key="sk_multi_b")
+        set_provider_domain_tags(db, "mailosaur.com", ["chatgpt", "elevenlabs"])
         for svc in ("chatgpt", "elevenlabs"):
             rows = get_mail_providers(db, service_tag=svc)
             strs = {r["connection_str"] for r in rows}
-            assert "mailslurp_legacy.local:sk_multi_a" in strs
-            assert "mailslurp_legacy.local:sk_multi_b" in strs
+            assert "mailosaur.com:sk_multi_a" in strs
+            assert "mailosaur.com:sk_multi_b" in strs
         # openrouter not in tags → not returned
         rows_other = get_mail_providers(db, service_tag="openrouter")
         strs_other = {r["connection_str"] for r in rows_other}
-        assert "mailslurp_legacy.local:sk_multi_a" not in strs_other
+        assert "mailosaur.com:sk_multi_a" not in strs_other
 
     def test_no_service_filter_returns_all_active(self, db):
-        upsert_mail_provider(db, "mailslurp_legacy.local", api_key="sk_no_filter")
+        upsert_mail_provider(db, "mailosaur.com", api_key="sk_no_filter")
         upsert_mail_provider(db, "testmail.app", api_key="uuid-nf", server_id="ns_nf")
         all_strs = {r["connection_str"] for r in get_mail_providers(db)}
-        assert "mailslurp_legacy.local:sk_no_filter" in all_strs
+        assert "mailosaur.com:sk_no_filter" in all_strs
         assert "testmail.app:ns_nf:uuid-nf" in all_strs
 
 
@@ -182,15 +182,15 @@ class TestProviderRowShape:
     """Verify cấu trúc dict trả về từ get_mail_providers."""
 
     def test_row_contains_required_fields(self, db):
-        upsert_mail_provider(db, "mailslurp_legacy.local", api_key="sk_shape", label="shape_label")
-        row = next(r for r in get_mail_providers(db) if r["connection_str"] == "mailslurp_legacy.local:sk_shape")
+        upsert_mail_provider(db, "mailosaur.com", api_key="sk_shape", label="shape_label")
+        row = next(r for r in get_mail_providers(db) if r["connection_str"] == "mailosaur.com:sk_shape")
         for field in ("id", "provider_type", "api_key", "server_id", "connection_str",
                       "label", "disabled", "fail_count", "created_at", "updated_at"):
             assert field in row, f"Row thiếu field: {field}"
 
     def test_row_values_correct_types(self, db):
-        upsert_mail_provider(db, "mailslurp_legacy.local", api_key="sk_types", label="types")
-        row = next(r for r in get_mail_providers(db) if r["connection_str"] == "mailslurp_legacy.local:sk_types")
+        upsert_mail_provider(db, "mailosaur.com", api_key="sk_types", label="types")
+        row = next(r for r in get_mail_providers(db) if r["connection_str"] == "mailosaur.com:sk_types")
         assert isinstance(row["id"], int)
         assert isinstance(row["api_key"], str)
         assert isinstance(row["disabled"], bool)
@@ -199,8 +199,8 @@ class TestProviderRowShape:
         assert row["fail_count"] == 0
 
     def test_label_stored_correctly(self, db):
-        upsert_mail_provider(db, "mailslurp_legacy.local", api_key="sk_lbl", label="custom-label-123")
-        row = next(r for r in get_mail_providers(db) if r["connection_str"] == "mailslurp_legacy.local:sk_lbl")
+        upsert_mail_provider(db, "mailosaur.com", api_key="sk_lbl", label="custom-label-123")
+        row = next(r for r in get_mail_providers(db) if r["connection_str"] == "mailosaur.com:sk_lbl")
         assert row["label"] == "custom-label-123"
 
     def test_provider_type_stored_correctly(self, db):

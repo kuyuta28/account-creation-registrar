@@ -56,7 +56,7 @@ class TestAccountRecord:
         assert "service" not in d
 
     def test_to_json_entry_omits_empty_api_key(self):
-        r = AccountRecord(service="PROTON", email="a@b.com", password="pw")
+        r = AccountRecord(service="LEONARDO", email="a@b.com", password="pw")
         assert "api_key" not in serialize_account_record(r)
 
     def test_to_json_entry_omits_empty_tokens(self):

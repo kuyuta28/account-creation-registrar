@@ -20,8 +20,7 @@ import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Callable
-
-from playwright.async_api import BrowserContext
+from typing import Any
 
 LogFn = Callable[[str], None]
 
@@ -220,7 +219,7 @@ async def _download_new_images(
 # ── Public API ────────────────────────────────────────────────────────────────
 
 async def run_image_lab(
-    context: BrowserContext,
+    context: Any,
     params: ImageLabParams,
     output_dir: Path,
     image_lab_url: str,

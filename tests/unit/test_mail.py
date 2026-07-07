@@ -3,7 +3,7 @@ unit/test_mail.py — Tests cho src/mail/
 
 Bao phủ:
   - _base.py: random_string, provider_kind, provider_display_name, auth_headers
-  - client.py: extract_link, _normalize_providers, _rotated_providers,
+  - client.py: extract_link, _normalize_providers,
                circuit breaker functions, create_mailbox (async), wait_for_message (async)
 
 Pattern: AAA, async tests dùng pytest-asyncio hoặc asyncio.run
@@ -50,10 +50,6 @@ class TestAuthHeaders:
 
 
 class TestProviderKind:
-    def test_mailslurp_prefix(self):
-        from src.mail._base import provider_kind
-        assert provider_kind("mailslurp_legacy.local:some-key") == "mailslurp_legacy.local"
-
     def test_testmail_prefix(self):
         from src.mail._base import provider_kind
         assert provider_kind("testmail.app:ns:key") == "testmail.app"
@@ -68,12 +64,6 @@ class TestProviderKind:
 
 
 class TestProviderDisplayName:
-    def test_mailslurp_truncates_key(self):
-        from src.mail._base import provider_display_name
-        name = provider_display_name("mailslurp_legacy.local:abcdef1234567890")
-        assert "mailslurp_legacy.local:..." in name
-        assert "34567890" in name
-
     def test_testmail_shows_namespace(self):
         from src.mail._base import provider_display_name
         name = provider_display_name("testmail.app:im4vw:some-uuid")
@@ -153,27 +143,6 @@ class TestNormalizeProviders:
         from src.mail.client import _normalize_providers
         result = _normalize_providers(["https://api.mail.tm"])
         assert isinstance(result, tuple)
-
-
-class TestRotatedProviders:
-    def test_returns_all_providers(self):
-        from src.mail.client import _rotated_providers
-        providers = ["https://api.mail.tm", "https://api.mail.gw"]
-        result = _rotated_providers(providers)
-        assert set(result) == set(providers)
-        assert len(result) == 2
-
-    def test_returns_tuple(self):
-        from src.mail.client import _rotated_providers
-        assert isinstance(_rotated_providers(["https://api.mail.tm"]), tuple)
-
-    def test_rotates_start_index(self):
-        from src.mail.client import _rotated_providers
-        providers = ["a", "b", "c"]
-        r1 = _rotated_providers(providers)
-        r2 = _rotated_providers(providers)
-        # consecutive calls MUST start from different provider
-        assert r1[0] != r2[0]
 
 
 class TestCircuitBreaker:

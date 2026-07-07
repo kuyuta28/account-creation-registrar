@@ -58,9 +58,9 @@ def test_mail_tm_no_auto_tags(smoke_db):
 
 def test_upsert_and_get_provider(smoke_db):
     """Upsert 1 provider → get_mail_providers trả về đúng."""
-    upsert_mail_provider(smoke_db, "mailslurp_legacy.local", api_key="sk_smoke_test")
+    upsert_mail_provider(smoke_db, "mailosaur.com", api_key="sk_smoke_test")
     strs = {r["connection_str"] for r in get_mail_providers(smoke_db)}
-    assert "mailslurp_legacy.local:sk_smoke_test" in strs
+    assert "mailosaur.com:sk_smoke_test" in strs
 
 
 def test_insert_account_and_retrieve(smoke_db):

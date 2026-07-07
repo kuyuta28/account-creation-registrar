@@ -41,10 +41,6 @@ def test_import_core_page_utils():
     from src.core import page_utils  # noqa
 
 
-def test_import_common_browser():
-    from common import browser  # noqa
-
-
 # ── mail ──────────────────────────────────────────────────────────────────────
 
 def test_import_mail_base():
@@ -57,10 +53,6 @@ def test_import_mail_client():
 
 def test_import_mail_providers_mail_tm():
     from src.mail.providers import mail_tm  # noqa
-
-
-def test_import_mail_providers_mailslurp():
-    from src.mail.providers import mailslurp_com  # noqa
 
 
 def test_import_mail_providers_testmail():
@@ -117,10 +109,6 @@ def test_import_openrouter_registrar():
 
 def test_import_leonardo_registrar():
     from src.services.leonardo_ai import registrar  # noqa
-
-
-def test_import_proton_registrar():
-    from src.services.proton_me import registrar  # noqa
 
 
 def test_import_artificialanalysis_registrar():

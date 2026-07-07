@@ -32,7 +32,7 @@ async def relogin_aa(
     from common.database._async import update_account_async
     from common.database._engine import get_async_session
     from ....config.settings import load_config
-    from ....services.artificialanalysis_ai.registrar import (
+    from ....services.artificialanalysis_ai.flow import (
         _fetch_magic_link,
         _fill_email_and_submit,
         _navigate_magic_link,

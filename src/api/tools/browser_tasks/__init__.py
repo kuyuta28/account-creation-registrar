@@ -15,7 +15,18 @@ from ._registry import get_task, list_tasks, register  # noqa: F401
 from . import login_gmail  # noqa: F401,E402
 from . import relogin_aa  # noqa: F401,E402
 from . import register_cloudflare  # noqa: F401,E402
+from . import register_testmail  # noqa: F401,E402
+from . import register_mailosaur  # noqa: F401,E402
+from . import register_openrouter  # noqa: F401,E402
+from . import register_leonardo  # noqa: F401,E402
+from . import register_elevenlabs  # noqa: F401,E402
+from . import register_artificialanalysis  # noqa: F401,E402
+from . import register_klingai  # noqa: F401,E402
+from . import refresh_kling_session  # noqa: F401,E402
+from . import fix_or_privacy  # noqa: F401,E402
+from . import run_image_lab_one  # noqa: F401,E402
 from . import add_cf_to_9router  # noqa: F401,E402
 from . import refresh_aa_models  # noqa: F401,E402
+from . import debug_aa_edit  # noqa: F401,E402
 
 __all__ = ["register", "get_task", "list_tasks"]
