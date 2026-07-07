@@ -4,52 +4,24 @@ Các module nền tảng — không phụ thuộc vào service cụ thể nào, 
 
 ---
 
-## `browser.py` — Browser Factory
+## Browser Gateway (không còn `core/browser.py`)
 
-**Nhiệm vụ**: Khởi tạo Playwright browser/context/page với cấu hình chuẩn.
+Toàn bộ browser automation chạy trên **host** qua Browser Gateway — container
+`registrar` không mở browser trực tiếp (không có camoufox binary trong image).
 
-### Functions
+- **Agent host**: `registrar/tools/host_browser_agent.py` (`127.0.0.1:9999`).
+- **Task registry**: `src/api/tools/browser_tasks/` — mỗi task là
+  `@register("task_name", engine="camoufox")` handler `(*, browser, args, log_fn) -> dict`.
+- **Container client**: `common.browser_gateway_client.run_browser_task(
+  gateway_url, task, args, *, headless=None, on_log=None) -> dict`.
+- **Engine abstraction**: `src/api/tools/browser_gateway_engines.py` —
+  `open_browser(engine, headless, proxy)` (camoufox | edge | chromium).
 
-#### `create_browser(playwright, cfg) → Browser`
+`cfg.headless` (top-level, KHÔNG phải `cfg.browser.headless`) контроль headless.
+Service registrar delegate sang gateway task; `_signup_flow`/flow helpers là pure
+automation nhận `page`/`context` từ gateway task wrapper.
 
-Mở Chromium với chế độ headless theo config.
-
-```python
-browser = create_browser(playwright, cfg)
-# cfg.headless = False → mở browser window (với --start-minimized — không hiện lên foreground)
-# cfg.headless = True  → chạy ẩn (không thấy UI)
-```
-
-Khi `headless=False`, hàm tự động pass `--start-minimized` vào Chromium args — browser mở ở taskbar, không bật lên che cửa sổ đang active.
-
-```python
-def create_browser(playwright, cfg) -> Browser:
-    args = ["--start-minimized"] if not cfg.headless else []
-    return playwright.chromium.launch(headless=cfg.headless, args=args)
-```
-
-#### `create_context(browser) → BrowserContext`
-
-Tạo context với:
-- **User-Agent**: `Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0`
-- **Viewport**: `1280×720`
-
-#### `create_page(context) → Page`
-
-Tạo page và inject anti-detection script:
-```javascript
-Object.defineProperty(navigator, 'webdriver', {get: () => undefined})
-```
-
-Giúp tránh bot detection bằng cách ẩn dấu hiệu automation.
-
-### Hằng số nội bộ
-
-| Hằng | Giá trị |
-|---|---|
-| `_USER_AGENT` | `Mozilla/5.0 ... Chrome/120.0.0.0 Safari/537.36` |
-| `_VIEWPORT` | `{"width": 1280, "height": 720}` |
-| `_ANTI_DETECT` | JS ẩn `navigator.webdriver` |
+Xem `docs/architecture.md` → "Browser Gateway" + `docs/PLAN-GATEWAY-MIGRATION.md`.
 
 ---
 
@@ -134,7 +106,7 @@ generate_username(17)  # "am7sqsk5wz3kl9p2q"
 ```python
 @dataclass(frozen=True)
 class AccountRecord:
-    service: str      # "ELEVENLABS" | "PROTON"
+    service: str      # "ELEVENLABS" | "LEONARDO" | ...
     email: str
     password: str
     api_key: str = "" # optional, dùng cho ElevenLabs
@@ -148,7 +120,7 @@ Serialize để lưu vào JSON. Loại bỏ `service`, bỏ `api_key` nếu rỗ
 AccountRecord("ELEVENLABS", "a@b.com", "pw", "sk_abc").to_json_entry()
 # → {"email": "a@b.com", "password": "pw", "api_key": "sk_abc"}
 
-AccountRecord("PROTON", "a@b.com", "pw").to_json_entry()
+AccountRecord("LEONARDO", "a@b.com", "pw").to_json_entry()
 # → {"email": "a@b.com", "password": "pw"}
 ```
 
@@ -183,7 +155,6 @@ repo.all("elevenlabs")
 | Service | File |
 |---|---|
 | ElevenLabs | `elevenlabs_accounts.json` |
-| Proton | `proton_accounts.json` |
 
 Format:
 ```json

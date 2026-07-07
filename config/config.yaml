@@ -1,13 +1,10 @@
 browser:
-  headless: true
+  headless: false
   viewport_width: 1280
   viewport_height: 720
   max_concurrent: 10
 ninerouter:
   dashboard_url: http://localhost:20128/dashboard/providers/cloudflare-ai
-
-# Giới hạn vận hành registration API (jobs, workers, auto-stop).
-# max_consecutive_fails: job auto-stop sau N fail liên tiếp.
 registration:
   max_jobs: 500
   max_consecutive_fails: 10

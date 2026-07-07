@@ -26,7 +26,7 @@ Mỗi service **độc lập**: git riêng, pyproject riêng, run độc lập. 
 ```
 src/
   api/           ← FastAPI routes
-  services/      ← registrar per platform (proton, klingai...)
+  services/      ← registrar per platform (cloudflare, klingai...)
   mail/          ← mail provider clients (mail.tm, testmail.app)
   core/          ← job runner, browser manager, config loader
 ui/              ← frontend (Vite/React)
@@ -51,7 +51,6 @@ config/          ← per-service YAML configs
 | `ELEVENLABS` | elevenlabs.io |
 | `LEONARDO` | leonardo.ai |
 | `KLINGAI` | klingai.com |
-| `PROTON` | proton.me |
 | `ARTIFICIALANALYSIS` | artificialanalysis.ai |
 
 ---
@@ -122,7 +121,6 @@ Public interface của mỗi provider:
 | `elevenlabs_io/` | elevenlabs.io | `ELEVENLABS` |
 | `leonardo_ai/` | leonardo.ai | `LEONARDO` |
 | `klingai_com/` | klingai.com | `KLINGAI` |
-| `proton_me/` | proton.me | `PROTON` |
 | `artificialanalysis_ai/` | artificialanalysis.ai | `ARTIFICIALANALYSIS` |
 | `testmail_app/` | testmail.app | `TESTMAIL` |
 
@@ -296,18 +294,17 @@ main.py / run_api.py
  │
  ├─ register_elevenlabs (FP)   ← src/services/elevenlabs_io/registrar.py
  │   ├─ create_mailbox()        ← src/mail/client.py
- │   ├─ create_browser()        ← src/core/browser.py
- │   ├─ solve_hcaptcha()        ← src/services/elevenlabs_io/captcha.py
- │   ├─ handle_onboarding()     ← src/services/elevenlabs_io/onboarding.py
- │   └─ create_api_key()        ← src/services/elevenlabs_io/api_key.py
+ │   ├─ run_browser_task()      ← common/browser_gateway_client.py (delegate → host gateway)
+ │   │   └─ _signup_flow()      ← src/services/elevenlabs_io/registrar.py (pure, chạy trên host)
+ │   └─ save_fn()               ← src/core/storage.py
  │
  ├─ register_chatgpt (FP)      ← src/services/chatgpt_com/registrar.py
  │   ├─ create_mailbox()        ← src/mail/client.py
- │   ├─ create_browser()        ← src/core/browser.py
  │   └─ _SharedCallbackServer   ← src/services/chatgpt_com/oauth_server.py
  │
  ├─ register_openrouter (FP)   ← src/services/openrouter_ai/registrar.py
- │   └─ create_mailbox()        ← src/mail/client.py
+ │   ├─ create_mailbox()        ← src/mail/client.py
+ │   └─ run_browser_task()      ← delegate → host gateway
  │
  └─ register_artificialanalysis (FP) ← src/services/artificialanalysis_ai/registrar.py
      └─ create_mailbox()        ← src/mail/client.py
@@ -374,7 +371,7 @@ Browser được tạo với:
 
 ## Browser Gateway — host delegates browser work
 
-**Vấn đề:** container `registrar` không có binary `camoufox` (anti-detect browser, Windows-only, cài trên host). Một số service (Cloudflare, AA re-login) cần camoufox để bypass Turnstile/bot-detection.
+**Kiến trúc chính:** toàn bộ browser automation chạy trên **host** qua Browser Gateway — container `registrar` không có binary camoufox (anti-detect browser, Windows-only, cài trên host) và không mở browser trực tiếp. Mọi service registrar (cloudflare, elevenlabs, openrouter, leonardo, AA, klingai, testmail, mailosaur) + checker (refresh kling session, fix OR privacy) + Image Lab đều delegate sang gateway task.
 
 **Giải pháp:** Browser Gateway — process Python chạy trên **host** (`tools/host_browser_agent.py`, `127.0.0.1:9999`). Nó mở camoufox + chạy task automation. Container gọi qua HTTP.
 
@@ -400,7 +397,7 @@ register_cloudflare()                    host_browser_agent.py:9999
 
 1. **Task handler** — tạo `src/api/tools/browser_tasks/<name>.py`:
    ```python
-   @register("<task_name>", engine="camoufox")  # headless đọc từ cfg.browser.headless
+   @register("<task_name>", engine="camoufox")  # headless đọc từ cfg.headless (top-level)
    async def task_name(*, browser: Browser, args: dict, log_fn=None) -> dict:
        # browser do gateway mở + truyền vào. KHÔNG mở browser trực tiếp.
        ctx = await browser.new_context()

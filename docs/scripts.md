@@ -13,13 +13,12 @@ Hiển thị menu chọn dịch vụ:
 ============================================================
   ACCOUNT CREATION AUTOMATION
 ============================================================
-  [1] Proton Mail
-  [2] ElevenLabs + API key
-  [3] ChatGPT
-  [4] Leonardo AI
+  [1] ElevenLabs + API key
+  [2] Leonardo AI
   [5] Check ElevenLabs API key status
   [6] Check ChatGPT account status
-  [7] Sync exported auth files
+  [7] Check ChatGPT quota (weekly usage%)
+  [8] Sync exported auth files
   [0] Exit
 ============================================================
 Choose:
@@ -178,7 +177,6 @@ python debug_captcha.py
 | `debug/*.html` | HTML dump của các trang quan trọng để debug |
 | `debug/captcha_roundNN.png` | Screenshot captcha widget mỗi round |
 | `screenshots/elevenlabs_error.png` | Chụp khi ElevenLabs flow bị exception |
-| `screenshots/proton_error.png` | Chụp khi Proton flow bị exception |
 
 ---
 
@@ -187,4 +185,3 @@ python debug_captcha.py
 | File | Dịch vụ | Format |
 |---|---|---|
 | `elevenlabs_accounts.json` | ElevenLabs | `[{email, password, api_key}, ...]` |
-| `proton_accounts.json` | Proton | `[{email, password}, ...]` |
