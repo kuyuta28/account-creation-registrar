@@ -1,7 +1,7 @@
 ninerouter:
   # 9Router dashboard — service riêng, tao chỉ dùng (không quản lý code).
-  # password đọc qua env var NINEROUTER_PASSWORD (không hardcode trong file).
   dashboard_url: http://localhost:20128/dashboard/providers/cloudflare-ai
+  password: '@Anhtuan13'
   login_path: /login
   target_path: /cloudflare-ai
 

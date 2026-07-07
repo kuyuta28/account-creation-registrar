@@ -24,6 +24,8 @@ class TimeoutConfig:
     batch_delay_sec: int = 5
     probe_timeout_ms: int = 3_000
     popup_close_probe_ms: int = 2_000
+    # goto_with_reload_retry: timeout probe mỗi lần thử (goto → probe → reload hard → probe lại).
+    goto_probe_timeout_ms: int = 5_000
 
 
 @dataclass(frozen=True)
@@ -187,6 +189,9 @@ class CloudflareConfig:
     email_selector: str = 'input[name="email"]'
     password_selector: str = 'input[type="password"]'
     signup_button_text: str = 'Sign up'
+    login_button_text: str = 'Log in'
+    signin_url_pattern: str = r'dash\.cloudflare\.com/(login|sign-?in)'
+    verify_redirect_timeout_ms: int = 20_000
     skip_button_texts: tuple[str, ...] = ('Skip', 'Skip for now', 'Not now')
     ai_section_name: str = 'AI & machine learning'
     ai_gateway_run_label: str = 'AI Gateway'
@@ -195,7 +200,7 @@ class CloudflareConfig:
     review_button_text: str = 'Review token'
     create_button_text: str = 'Create Token'
     token_display_label: str = 'Your API Token'
-    token_regex: str = r'[A-Za-z0-9_-]{40,}'
+    token_regex: str = r'cfat_[A-Za-z0-9_-]{30,}'
     account_id_regex: str = r'dash\.cloudflare\.com/([0-9a-f]{32})/'
 
 
@@ -205,10 +210,10 @@ class NineRouterConfig:
 
     Dùng để auto-add Cloudflare account sau khi tạo: fill form Add → Check → Save.
     Selectors/timeouts cho task add_cf_to_9router — DOM đã verify 2026-07-04.
-    password đọc qua env NINEROUTER_PASSWORD.
+    password đọc từ ninerouter.yaml (config = source of truth, không env rời rạc).
     """
     dashboard_url: str = "http://localhost:20128/dashboard/providers/cloudflare-ai"
-    password: str = field(default_factory=lambda: os.getenv("NINEROUTER_PASSWORD", ""))
+    password: str = ""
     login_path: str = "/login"
     target_path: str = "/cloudflare-ai"
     login_password_selector: str = 'input[placeholder="Enter password"]'
@@ -234,45 +239,6 @@ class NineRouterConfig:
 
 
 @dataclass(frozen=True)
-class GmailLoginConfig:
-    """Gmail TOTP 2FA login flow (src/services/gmail/login.py).
-    Khác google_oauth (OAuth chooser) — đây là direct login với TOTP."""
-    signin_url: str = "https://accounts.google.com/signin"
-    success_url: str = "myaccount.google.com"
-    email_input: str = 'input[type="email"]'
-    email_next: str = "#identifierNext"
-    password_input: str = 'input[name="Passwd"]'
-    password_next: str = "#passwordNext"
-    challenge_totp: str = '[data-challengetype="6"]'
-    totp_input: str = 'input[name="totpPin"]'
-    totp_next: str = '[id$="Next"]'
-    post_email_delay_sec: float = 1.5
-    post_password_delay_sec: float = 2.0
-    post_challenge_click_delay_sec: float = 2.0
-    post_totp_delay_sec: float = 3.0
-    challenge_visible_timeout_ms: int = 10_000
-    totp_visible_timeout_ms: int = 10_000
-
-
-@dataclass(frozen=True)
-class ProtonConfig:
-    """Proton Mail registration — selectors/texts/timeouts cho register_proton."""
-    signup_url: str = "https://account.proton.me/signup?plan=free"
-    signup_page_load_multiplier: int = 3
-    signup_iframe_selector: str = "iframe"
-    signup_iframe_url_contains: str = "Name=email"
-    username_selector: str = "#username"
-    username_taken_text: str = "Username already used"
-    username_max_attempts: int = 5
-    signup_iframe_timeout_ms: int = 30_000
-    password_selector: str = "#password"
-    password_confirm_selector: str = "#password-confirm"
-    submit_selector: str = 'button[type="submit"]'
-    create_account_button_text: str = "Create account"
-    dismiss_popup_texts: tuple[str, ...] = ("Skip", "Maybe later", "No, thanks", "Not now")
-
-
-@dataclass(frozen=True)
 class MailConfig:
     cooldown_sec: int = 120
     max_consecutive_fails: int = 3
@@ -291,6 +257,7 @@ class MailConfig:
     gmail_inbox_url: str = "https://mail.google.com/mail/u/0/#inbox"
     gmail_search_url_template: str = "https://mail.google.com/mail/u/0/#search/{query}"
     sms_store_cap: int = 500
+    testmail_monthly_quota: int = 100
 
     def providers_for(self, service: str = '') -> tuple[str, ...]:
         import asyncio
@@ -588,8 +555,6 @@ class AppConfig:
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     cloudflare: CloudflareConfig = field(default_factory=CloudflareConfig)
     ninerouter: NineRouterConfig = field(default_factory=NineRouterConfig)
-    proton: ProtonConfig = field(default_factory=ProtonConfig)
-    gmail_login: GmailLoginConfig = field(default_factory=GmailLoginConfig)
     proxy: ProxyConfig | None = None
     base_dir: Path = field(default_factory=lambda: Path(__file__).parent.parent.parent)
 
@@ -745,7 +710,6 @@ _CONFIG_FILES = (
     "sentry.yaml",
     "cloudflare.yaml",
     "ninerouter.yaml",
-    "proton.yaml",
     "gmail.yaml",
 )
 
@@ -792,18 +756,6 @@ def _parse_ninerouter(raw: dict | None) -> NineRouterConfig:
     if not raw:
         return NineRouterConfig()
     return _parse_section_strict(NineRouterConfig, raw, "ninerouter")
-
-
-def _parse_proton(raw: dict | None) -> ProtonConfig:
-    if not raw:
-        return ProtonConfig()
-    return _parse_section_strict(ProtonConfig, raw, "proton")
-
-
-def _parse_gmail_login(raw: dict | None) -> GmailLoginConfig:
-    if not raw:
-        return GmailLoginConfig()
-    return _parse_section_strict(GmailLoginConfig, raw, "gmail")
 
 
 def _parse_database(raw: dict | None) -> DatabaseConfig:
@@ -858,8 +810,6 @@ def load_config(path: Path | None = None) -> AppConfig:
         database=_parse_database(raw.get("database")),
         cloudflare=_parse_cloudflare(raw.get("cloudflare")),
         ninerouter=_parse_ninerouter(raw.get("ninerouter")),
-        proton=_parse_proton(raw.get("proton")),
-        gmail_login=_parse_gmail_login(raw.get("gmail")),
         proxy=_parse_proxy(raw.get("proxy", {})),
         base_dir=base_dir,
     )
