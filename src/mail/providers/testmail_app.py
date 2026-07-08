@@ -106,7 +106,6 @@ async def wait_for_message(
                 subj_ok = subject_contains.lower() in subject.lower() if subject_contains else True
                 if from_ok and subj_ok:
                     _log(f"  Got: '{subject}' from {sender}")
-                    await _bump_usage(box, _log)
                     return msg
         except Exception as exc:  # noqa: BLE001 - mail provider best-effort
             _log(f"  Poll error: {exc}")
@@ -114,24 +113,3 @@ async def wait_for_message(
 
     _log("  Timed out waiting for email")
     return None
-
-
-async def _bump_usage(box: Mailbox, _log: LogFn) -> None:
-    """Bump usage_count cho namespace sau khi nhận email (counting round-robin).
-
-    provider_id=0 → mailbox tạo ngoài DB flow (test), bỏ qua. Lỗi bump không làm
-    fail flow nhận email — counting là best-effort tracking, email vẫn trả về.
-    """
-    if not box.provider_id:
-        return
-    try:
-        from common.database._engine import get_async_session
-        from common.database._providers_async import increment_provider_usage_async
-        from .._base import _mail_cfg
-        quota = _mail_cfg().testmail_monthly_quota
-        async with get_async_session() as session:
-            res = await increment_provider_usage_async(session, box.provider_id, quota)
-            if res["cooldown"]:
-                _log(f"  [mail] {box.token} near quota ({res['usage_count']}/{quota}) → cooldown đến cuối tháng")
-    except Exception as exc:  # noqa: BLE001 - tracking best-effort
-        _log(f"  [mail] bump usage failed: {exc}")
