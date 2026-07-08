@@ -46,6 +46,11 @@ async def register_cloudflare(
             )
         except BrowserGatewayError as exc:
             msg = str(exc)
+            if "SignupBlocked" in msg and attempt < max_attempts:
+                log_fn(f"\n⚠️ Sign-up blocked (warning): {exc}")
+                log_fn("  Cooldown 60s rồi retry với mailbox khác...")
+                await asyncio.sleep(60)
+                continue
             if "Email verification" in msg and attempt < max_attempts:
                 log_fn(f"\nEmail verification failed: {exc}")
                 log_fn("  Retrying with fresh mailbox...")
@@ -86,18 +91,25 @@ async def _add_to_9router(
     from common.database._engine import get_async_session
 
     log_fn("\n[9Router] Add account...")
-    try:
-        result = await run_browser_task(
-            gateway_url, "add_cf_to_9router",
-            args={
-                "email": record.email,
-                "api_key": record.api_key,
-                "account_id": record.account_id,
-            },
-            on_log=log_fn,
-        )
-    except BrowserGatewayError as exc:
-        raise RuntimeError(f"9Router add thất bại: {exc}") from exc
+    _MAX_9ROUTER_ATTEMPTS = 3
+    result: dict | None = None
+    for attempt in range(1, _MAX_9ROUTER_ATTEMPTS + 1):
+        try:
+            result = await run_browser_task(
+                gateway_url, "add_cf_to_9router",
+                args={
+                    "email": record.email,
+                    "api_key": record.api_key,
+                    "account_id": record.account_id,
+                },
+                on_log=log_fn,
+            )
+            break
+        except BrowserGatewayError as exc:
+            if attempt < _MAX_9ROUTER_ATTEMPTS:
+                log_fn(f"\n[9Router] attempt {attempt}/{_MAX_9ROUTER_ATTEMPTS} fail: {exc} — retry...")
+                continue
+            raise RuntimeError(f"9Router add thất bại sau {_MAX_9ROUTER_ATTEMPTS} lần: {exc}") from exc
 
     if result.get("valid"):
         log_fn("[9Router] ✅ valid + saved")

@@ -55,6 +55,10 @@ class OAuthError(RetryableRegistrationError):
 class EmailVerificationError(RetryableRegistrationError):
     """Không nhận được email xác thực hoặc OTP."""
 
+class SignupBlockedError(RetryableRegistrationError):
+    """Service chặn sign-up (IP/email/fingerprint bị flag) — warning, không fatal.
+    Retry sau cooldown (default 60s) với mailbox khác, không dừng job."""
+
 
 # ── Permanent: lỗi cụ thể cho 1 account, skip nhưng job tiếp tục ─────────────
 

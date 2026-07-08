@@ -25,7 +25,7 @@ from common.page_utils import goto_with_reload_retry
 from common.password import generate_password
 from src.core.account_record import AccountRecord
 from ...mail.client import Mailbox, extract_link, wait_for_message
-from ..errors import EmailVerificationError, FatalRegistrationError, RetryableRegistrationError
+from ..errors import EmailVerificationError, RetryableRegistrationError, SignupBlockedError
 from ..protocols import LogFn
 
 
@@ -125,17 +125,17 @@ async def _click_signup_button(page: Any, cfg: AppConfig, log_fn: LogFn) -> None
 
 
 async def _check_signup_blocked(page: Any, log_fn: LogFn) -> None:
-    """Stop condition: CF chặn sign-up hẳn (IP/email/fingerprint bị flag).
+    """Warning condition: CF chặn sign-up tạm thời (IP/email/fingerprint bị flag).
 
-    "You are unable to sign up at this time" = block cố định, retry cùng máy vô
-    nghĩa → FatalRegistrationError (dispatcher dừng job ngay, không retry).
+    "You are unable to sign up at this time" = block tạm, không fatal — warning
+    + cooldown 60s rồi retry với mailbox khác (xử lý ở registrar wrapper).
     """
     blocked = await page.evaluate(
         "() => (document.body.innerText || '').includes('You are unable to sign up at this time')"
     )
     if blocked:
-        log_fn("  🛑 Cloudflare blocked sign-up (unable to sign up at this time)")
-        raise FatalRegistrationError("Cloudflare blocked sign-up: unable to sign up at this time")
+        log_fn("  ⚠️ Cloudflare blocked sign-up (unable to sign up at this time) — cooldown 60s rồi retry")
+        raise SignupBlockedError("Cloudflare blocked sign-up: unable to sign up at this time")
 
 
 async def _check_for_errors(page: Any) -> str | None:
